@@ -27,6 +27,8 @@ def jumped(t):                  # t = unix second of the decision; uses the last
 #   FVSTOP=1: a lot's stop triggers when OUR side's fair value <= its stop price (instead of the traded price), still needs lead < LEADSTOP
 #   FVSTOP=2: either the traded price or the fair value <= the stop price
 #   FVENT=x : skip an entry when the buy price is more than x above our side's fair value (0 = off)
+# GAP=x, GAPW=w (2026-10-20): if a stop would sell more than x below a lot's stop price (a gap), wait w s and re-check that lot once.
+GAP=float(os.environ.get("GAP","0")); GAPW=int(os.environ.get("GAPW","2")); GAPN=[0,0]   # [lots that waited, of those sold later]
 FVSTOP=int(os.environ.get("FVSTOP","0")); FVENT=float(os.environ.get("FVENT","0")); FVBLK=[0]; FVD=[]
 _W60=sum((k/60)**2 for k in range(1,61))
 def sig_at(op):
@@ -144,11 +146,19 @@ for y,op,path,K in W:
                 elif FVSTOP==1: hit=[L for L in lots if fv<=L["stop"] and lead<LEADSTOP]
                 else: hit=[L for L in lots if (fv<=L["stop"] or lastp<=L["stop"]) and lead<LEADSTOP]
             else: hit=[L for L in lots if lastp<=L["stop"] and lead<LEADSTOP]
+            hit=[L for L in hit if L.get("wu",-1)<=u]
             if hit:
                 b=sell_fast(K,op+u+1,side)
                 if b is not None and CONFIRM!="off":          # re-check when selling (second u+1): skip lots that recovered
                     if CONFIRM in ("bid","both"): hit=[L for L in hit if b<=L["stop"]+1e-9]
                     if CONFIRM in ("btc","both") and (path[min(61+u,len(path)-1)]-K0)/K0*(1 if side=="y" else -1)>=LEADSTOP: hit=[]
+                    if not hit: b=None
+                if b is not None and GAP>0:
+                    gw=[L for L in hit if "wu" not in L and b<L["stop"]-GAP]
+                    for L in gw: L["wu"]=u+GAPW; GAPN[0]+=1
+                    for L in hit:
+                        if "wu" in L and L not in gw and not L.get("wsold"): L["wsold"]=1; GAPN[1]+=1
+                    hit=[L for L in hit if L not in gw]
                     if not hit: b=None
                 if b is not None:
                     if STOPFRAC>0: b=sell_sized(K,op+u+1,side,sum(L["n"] for L in hit),STOPFRAC)
@@ -198,6 +208,8 @@ for y,op,path,K in W:
         stopped=sum(L["exit"]=="stopped" for L in ml),sold995=sum(L["exit"].startswith("sold") for L in ml),settled=sum(L["exit"].startswith("settled") for L in ml),
         pnl=round(sum(L["pnl"] for L in ml),2)))
 pd.DataFrame(SKIPS).to_csv(PRE+"_skipped.csv",index=False); print("roll checks blocked by the sweep filters:",ROLLSKIP[0],"| entries blocked near a 2-day level:",NEARSKIP[0],"| blocked by spread > %.0fc:"%(MAXSPREAD*100),WIDE[0]); print("markets skipped by the filters:",len(SKIPS),pd.Series([x["why"] for x in SKIPS]).value_counts().to_dict() if SKIPS else "")
+for L in LOTS: L.pop("wu",None); L.pop("wsold",None)
+if GAP>0: print(f"gap waits: {GAPN[0]} lots waited, {GAPN[1]} sold after the wait, {GAPN[0]-GAPN[1]} kept")
 pd.DataFrame(LOTS).to_csv(PRE+"_entries.csv",index=False); M=pd.DataFrame(MK); M.to_csv(PRE+"_markets.csv",index=False)
 print(f"{len(M)} markets, {len(LOTS)} entries, P&L ${M.pnl.sum():+,.0f}" + (f" | entries blocked by fair value: {FVBLK[0]}; buy - fair (c) p10/50/90/99: "+" ".join(f"{np.quantile(FVD,q)*100:+.1f}" for q in (.1,.5,.9,.99)) if FVENT and FVD else ""))
 for d,x in M.groupby("day",sort=False): print(f"  {d}: {len(x)} markets, {x.entries.sum()} entries, ${x.pnl.sum():+,.0f}")

@@ -6,7 +6,8 @@ PT=ZoneInfo("America/Los_Angeles"); ET=ZoneInfo("America/New_York")
 C=pd.read_csv("data_news/calendar.csv"); NEWS={int(dt.datetime.fromisoformat(f"{a}T{b}").replace(tzinfo=ET).timestamp())+900*k
     for a,b,e in zip(C.date,C.time_et,C.event) if e in ("jobs","cpi","fomc") for k in range(4)}
 LAB={"eqrec":"Recommended (bid-based stop)","fvs1":"Stop on fair value only","fvs2":"Stop on fair value OR bid",
-     "fve2":"+ skip buys > 2c over fair","fve5":"+ skip buys > 5c over fair"}
+     "fve2":"+ skip buys > 2c over fair","fve5":"+ skip buys > 5c over fair",
+     "fvg10w2":"FV stop + wait 2 s on 10c gaps","fvg20w2":"FV stop + wait 2 s on 20c gaps","fvg10w5":"FV stop + wait 5 s on 10c gaps","fvg20w5":"FV stop + wait 5 s on 20c gaps"}
 print(f"{'variant':32s} {'total':>9s} {'max DD':>8s} {'t/DD':>5s} {'worst day':>9s} {'contracts':>10s} {'stopped':>9s} {'avg stop exit':>13s} {'Jun-Jul/day':>11s} {'Aug-Oct/day':>11s}")
 for n in sys.argv[1:]:
     M=[];E=[]

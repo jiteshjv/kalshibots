@@ -488,3 +488,7 @@ ops (journal, alerts, dashboard, recorder, Docker, docs/SETUP.md). Integration (
   Stop on fair value OR bid +$258.1K, DD -10.3K, 25.1, avg stop exit 56.2c vs 55.2c; Jun +6.0K Jul +1.0K Aug -0.2K Sep +1.1K Oct +0.5K,
   15/21 weeks better (gain mostly June) -> candidate. Entry filters (skip buys > 2c / 5c over fair): +$0.9K / +$1.9K, DD worse -> no.
   Buys are usually BELOW this fair value (median -2.5 to -4c), so a normal-tails model overstates the favourite's chance.
+- Gap wait (2026-10-20, her_trades.py GAP/GAPW on top of FVSTOP=2): if a stop would sell > GAP below a lot's stop price, wait GAPW s and
+  re-check once. vs FV stop +$258.1K/DD -10.3K: 10c/2s +$252.6K -10.1K; 20c/2s +$255.9K -10.2K; 10c/5s +$252.8K -10.8K; 20c/5s +$256.4K
+  -9.6K (t/DD 26.7 but only 11/21 weeks and 2/5 months better). Jun 15 4:15 PM market -2,954 -> -1,777, but real crashes keep falling
+  more often than spikes snap back -> not adopted; keep selling immediately. (The "sold after the wait" counter printed 0: counter bug, ignore.)

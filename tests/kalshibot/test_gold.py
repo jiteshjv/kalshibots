@@ -70,3 +70,16 @@ def test_seed_fills_the_dukascopy_gap_from_hyperliquid(monkeypatch, tmp_path):
     n = f.seed_history(h, days=0.5)
     assert n > 0 and h.range_2h(now) is not None
     assert abs(h.extreme(now - 600, now, "y") - 4100.1) < 1e-6    # Hyperliquid shifted +0.5 onto the Dukascopy level
+
+
+def test_seed_counts_trading_hours_not_calendar_days(monkeypatch, tmp_path):
+    from kalshibot.history import BtcHistory
+    f = GoldFeed(None, data_dir=tmp_path)
+    mon = int(dt.datetime(2026, 10, 19, 15, 0, tzinfo=dt.timezone.utc).timestamp())   # Monday 8 AM PT
+    monkeypatch.setattr(time, "time", lambda: mon)
+    asked = []
+    monkeypatch.setattr(f, "_hour", lambda t: asked.append(t) or [])
+    monkeypatch.setattr(f, "_hl_candles", lambda a, b: [])
+    f.seed_history(BtcHistory(), days=3)
+    trading = [t for t in asked if GoldFeed._trading_hour(t)]
+    assert len(trading) >= 72 and min(asked) < mon - 4 * 86400                           # reaches back past the weekend

@@ -112,6 +112,12 @@ class GoldFeed:
             await asyncio.sleep(self.poll_s)
 
     # -- history seed (Dukascopy) --------------------------------------------------------------------------------
+    @staticmethod
+    def _trading_hour(t: int) -> bool:
+        d = dt.datetime.fromtimestamp(t, dt.timezone.utc)
+        wd = d.weekday()
+        return not (wd == 5 or (wd == 4 and d.hour >= 21) or (wd == 6 and d.hour < 22))
+
     def _hour(self, t: int) -> list[tuple[int, float]]:
         d = dt.datetime.fromtimestamp(t, dt.timezone.utc)
         f = self.cache / f"{d:%Y-%m-%d_%H}.bi5"
@@ -175,8 +181,11 @@ class GoldFeed:
 
     def seed_history(self, history, days: float = 3) -> int:
         end = int(time.time()) // 3600 * 3600
+        hours, t, need = [], end, int(days * 24)        # `days` of TRADING hours: skip the weekend close (Fri 21:00 - Sun 22:00 UTC)
+        while sum(1 for h in hours if self._trading_hour(h)) < need and t > end - 12 * 86400:
+            hours.append(t); t -= 3600
         ticks: dict[int, float] = {}
-        for t in range(end - int(days * 86400), end + 3600, 3600):
+        for t in sorted(hours):
             for s, p in self._hour(t):
                 ticks[s] = p
         off = self._offset(ticks)
@@ -186,7 +195,7 @@ class GoldFeed:
         for m, v in sorted(bars.items()):
             history.add_minute_bar(m, max(v), min(v), v[-1])
         now = int(time.time()) // 60 * 60
-        last = max(bars) if bars else end - int(days * 86400) - 60
+        last = max(bars) if bars else (min(hours) if hours else end) - 60
         hl = self._hl_candles(min(last - 6 * 3600, now - 6 * 3600), now)  # 6 h of overlap to line the two up
         both = [bars[m][-1] - c for m, _, _, c in hl if m in bars]
         shift = statistics.median(both) if both else 0.0

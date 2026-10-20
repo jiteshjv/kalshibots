@@ -159,7 +159,7 @@ class Journal:
             "INSERT INTO markets(ticker, open_ts, close_ts, strike, range_2h, skipped) VALUES(?,?,?,?,?,?) "
             "ON CONFLICT(ticker) DO UPDATE SET open_ts=excluded.open_ts, close_ts=excluded.close_ts, "
             "strike=excluded.strike, range_2h=COALESCE(excluded.range_2h, markets.range_2h), "
-            "skipped=COALESCE(excluded.skipped, markets.skipped)",
+            "skipped=excluded.skipped",                     # a restart re-decides the skip
             (m.ticker, m.open_ts, m.close_ts, m.strike, range_2h, skipped),
         )
 

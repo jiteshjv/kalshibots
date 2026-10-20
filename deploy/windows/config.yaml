@@ -1,0 +1,27 @@
+# VPS config: the RECOMMENDED setup (same rules as the paper bot), small size. Starts in PAPER mode.
+# To trade real money: change risk.mode to live AND add the live_confirm line (see the end of this file).
+strategy:
+  series: KXBTC15M
+  sizing: equal         # same size every entry
+  size_late: 1          # contracts per entry (1 = plumbing test; fees make 1 roughly break-even, 10 behaves like the backtest)
+  max_held: 50          # max contracts held per market (= 50 entries, as 5,000 at 100 per entry)
+  stop_pct: 0.25        # stop an entry 25% below its buy price ...
+  stop_lead: 0.0003     # ... AND BTC within 0.03% of the strike
+  stop_recheck: true
+  jump_pause: 0.005     # no new entries for 15 min after a 1-minute BTC move above 0.5%
+  sweep_days: 3         # skip only after a break of a 3- to 14-day high/low on our side
+  sweep_max_days: 30
+  sweep_4h_m60: 0
+risk:
+  mode: paper           # paper | live
+  daily_loss_limit: 15  # $: no new entries for the rest of the UTC day after this loss (1/100 of the 100-contract $1,500)
+  news_mode: window     # NFP / CPI / FOMC: no new entries from the release ...
+  news_events: jobs,cpi,fomc
+  news_before_min: 0
+  news_after_min: 60    # ... until 60 minutes after it (needs data/news_calendar.csv)
+io:
+  data_dir: C:/kalshibot/data
+  record: true          # order book recording (about 20 MB/day)
+  dashboard_port: 8787
+# Live (real money): set risk.mode to live and add under risk:
+#   live_confirm: "I UNDERSTAND THIS TRADES REAL MONEY"

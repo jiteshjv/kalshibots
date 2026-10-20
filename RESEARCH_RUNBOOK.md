@@ -482,3 +482,9 @@ ops (journal, alerts, dashboard, recorder, Docker, docs/SETUP.md). Integration (
 - Sizing with the recommended rules (Jun 1 - Oct 19; jh_/v9_ eqrec, m5rec; sheet: Recommended works for all sizings):
   Mixed +$323.3K, DD -$15.7K, tot/DD 20.6, stopped 4.13M, block p90 2,000; Equal 100 +$250.4K, DD -$10.9K, tot/DD 22.9, stopped 3.22M,
   block p90 1,500, worst day -$6.0K; Mixed every 5 s +$451.9K, DD -$24.5K, 18.5, stopped 6.56M, 6.9c per stopped contract.
+- Fair-value rules (2026-10-20, scripts/her_trades.py FVSTOP/FVENT, scripts/run_fv.sh, scripts/fv_compare.py), recommended Equal 100,
+  Jun 1 - Oct 19, news hour removed. Fair = P(final 60 s average >= strike), random walk with the 30-min pre-open 1 s vol.
+  Baseline +$250.4K DD -10.9K t/DD 22.9. Stop on fair value only +$256.6K, DD -11.0K, 23.3 (Aug/Sep negative, 13/21 weeks).
+  Stop on fair value OR bid +$258.1K, DD -10.3K, 25.1, avg stop exit 56.2c vs 55.2c; Jun +6.0K Jul +1.0K Aug -0.2K Sep +1.1K Oct +0.5K,
+  15/21 weeks better (gain mostly June) -> candidate. Entry filters (skip buys > 2c / 5c over fair): +$0.9K / +$1.9K, DD worse -> no.
+  Buys are usually BELOW this fair value (median -2.5 to -4c), so a normal-tails model overstates the favourite's chance.

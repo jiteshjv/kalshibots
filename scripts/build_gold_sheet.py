@@ -14,7 +14,7 @@ for d,e,t in zip(C.date,C.event,C.time_et):
     rel=int(dt.datetime.fromisoformat(f"{d}T{t}").replace(tzinfo=ET).timestamp())
     if e in ("jobs","cpi","claims"): NEWS|={rel+900*k for k in (-1,0,1,2,3)}       # 5:15 - 6:30 AM PT
     if e=="fomc": NEWS|={rel+900*k for k in (0,1,2,3)}                               # 11:00 AM - 12:00 PM PT
-for out,v in (("mixed","A"),("equal","C")):
+for out,v in (("mixed","A"),("equal","C"),("ceq","Ceq")):   # ceq = Version C, 40 every entry (default since 2026-10-20)
     src=f"{PRE}_{v}"; M=pd.read_csv(f"results/{src}_markets.csv"); E=pd.read_csv(f"results/{src}_entries.csv")
     F=pd.read_csv(f"results/gold_fail_features_{src}.csv").set_index("ticker")
     M["o"]=pd.to_datetime(M.day+" 2026 "+M.window_pt,format="%a %b %d %Y %I:%M %p"); M=M.sort_values("o")

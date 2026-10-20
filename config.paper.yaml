@@ -1,5 +1,7 @@
 # Paper run on this Mac: RECOMMENDED setup (2026-10-20, tested Jun 1 - Oct 19), simulated fills, order book recorded locally.
 strategy:
+  sizing: equal         # 100 contracts every entry (no 200 early entries)
+  size_late: 100
   stop_pct: 0.25        # stop an entry 25% below its buy price ...
   stop_lead: 0.0003     # ... AND BTC within 0.03% of the strike
   stop_recheck: true    # sell only if the bid is still at or below the stop price

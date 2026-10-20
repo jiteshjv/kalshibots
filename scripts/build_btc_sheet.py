@@ -16,8 +16,9 @@ MODES={"mixed":("jh_off",late("v8_mixed")),"mixed_f":("jh_now",late("v8_mixed_f"
        "equal_l3":("jh_eq_l3",late("v9_eq_l3")),"equal_l3_f":("jh_eq_l3_f",late("v9_eq_l3_f")),
        "equal_s25l3":("jh_eq_s25l3",late("v9_eq_s25l3")),"equal_s25l3_f":("jh_eq_s25l3_f",late("v9_eq_s25l3_f")),
        "mixed5":("jh_m5",late("v8_mixed5")),"mixed5_f":("jh_m5f",late("v8_mixed5_f")),
-       "mixed_rec_f":("jh_j5",late("v9_j5")),"equal_rec_f":("jh_eqrec",late("v9_eqrec")),"mixed5_rec_f":("jh_m5rec",late("v9_m5rec")),
-       "equal_recfv_f":("jh_fvs2",late("v9_fvs2"))}       # recommended: 25% + 0.03% stop, 0.5% jump pause, NFP/CPI/FOMC hour skipped
+       "mixed_rec_f":("jh_j5L",late("v9_j5L")),"equal_rec_f":("jh_eqrecL",late("v9_eqrecL")),"mixed5_rec_f":("jh_m5recL",late("v9_m5recL")),
+       "mixed_rec_b":("jh_j5B",late("v9_j5B")),"equal_rec_b":("jh_eqrecB",late("v9_eqrecB")),"mixed5_rec_b":("jh_m5recB",late("v9_m5recB")),"equal_recfv_b":("jh_fvs2B",late("v9_fvs2B")),
+       "equal_recfv_f":("jh_fvs2L",late("v9_fvs2L"))}   # *L = long price history in the Oct folders; *_b = 3- to 14-day sweeps only       # recommended: 25% + 0.03% stop, 0.5% jump pause, NFP/CPI/FOMC hour skipped
 ONLY=sys.argv[2].split(",") if len(sys.argv)>2 else None
 import datetime as _dt; from zoneinfo import ZoneInfo as _Z
 _C=pd.read_csv("data_news/calendar.csv"); _ET=_Z("America/New_York")
@@ -28,13 +29,13 @@ for name,(h,lt) in MODES.items():
     M=pd.concat([pd.read_csv(f"results/{f}_markets.csv") for f in files]).drop_duplicates("ticker",keep="last")
     E=pd.concat([pd.read_csv(f"results/{f}_entries.csv") for f in files]).drop_duplicates(["ticker","entry_no"],keep="last")
     sk=[f"results/{f}_skipped.csv" for f in files if os.path.exists(f"results/{f}_skipped.csv") and os.path.getsize(f"results/{f}_skipped.csv")>2]
-    if name.endswith("_f") and sk:
+    if (name.endswith("_f") or name.endswith("_b")) and sk:
         K=pd.concat([pd.read_csv(f) for f in sk]).drop_duplicates("ticker",keep="last"); K=K[~K.ticker.isin(M.ticker)]
         K=K.assign(side="skipped: "+K.why,strike=None,result=None,entries=0,contracts=0,avg_buy=None,first_entry=None,stopped=0,sold995=0,settled=0,pnl=0.0,skip=1).drop(columns="why")
         M=pd.concat([M.assign(skip=0),K],ignore_index=True)
     else: M=M.assign(skip=0)
     M["o"]=pd.to_datetime(M.day+" 2026 "+M.window_pt,format="%a %b %d %Y %I:%M %p"); M=M[M.o>="2026-06-01"].sort_values("o")
-    if name in ("mixed_rec_f","equal_rec_f","mixed5_rec_f","equal_recfv_f"):                     # news hour: shown as skipped (would-be values come from mixed_s25l3)
+    if "_rec" in name:                     # news hour: shown as skipped (would-be values come from mixed_s25l3)
         nw=(M.o.dt.tz_localize("America/Los_Angeles").astype("int64")//10**9).isin(NEWS)&(M.skip==0)
         M.loc[nw,["side","entries","contracts","stopped","sold995","settled","pnl","skip"]]=["skipped: NFP/CPI/FOMC hour",0,0,0,0,0,0.0,1]
         M.loc[nw,["avg_buy","first_entry"]]=None

@@ -66,7 +66,15 @@ def swept(i,d,k):              # in the last 5 min, did BTC trade beyond the ext
     prior=ARR[i-k-300:i-300]; last5=ARR[i-300:i+1]
     if np.isnan(prior).all() or np.isnan(last5).all(): return False
     return bool(d*((np.nanmax(last5) if d>0 else np.nanmin(last5))-(np.nanmax(prior) if d>0 else np.nanmin(prior)))>0)
-def skip_market(t,d):           # filter 1: ran through the prior 48h high/low; filter 2: through the 4h level AND 1h move in the top 20%
+SWEEPRULE=os.environ.get("SWEEPRULE","cur")   # cur = 2-day+ sweeps + 4h/stretched 1h; b314 = only 3- to 14-day sweeps (swept 3-day, not 30-day), no 4h rule
+def skip_market(t,d):
+    if SWEEPRULE=="b314":
+        i=t-T0; p=ARR[i]
+        if p!=p or not swept(i,d,3*86400) or swept(i,d,30*86400): return None
+        for n in (14,7,5,3):
+            if swept(i,d,n*86400): return f"{n}-day sweep"
+    return skip_market_cur(t,d)
+def skip_market_cur(t,d):           # filter 1: ran through the prior 48h high/low; filter 2: through the 4h level AND 1h move in the top 20%
     i=t-T0; p=ARR[i]
     if p!=p: return None
     if swept(i,d,172800):                                          # 2-day (or longer) high/low; 1-day-only breaks are kept (they continue)

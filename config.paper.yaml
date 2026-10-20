@@ -6,6 +6,9 @@ strategy:
   stop_lead: 0.0003     # ... AND BTC within 0.03% of the strike
   stop_recheck: true    # sell only if the bid is still at or below the stop price
   jump_pause: 0.005     # no new entries for 15 min after a 1-minute BTC move above 0.5%
+  sweep_days: 3         # sweep filter (2026-10-20): skip only after a break of a 3- to 14-day high/low on our side ...
+  sweep_max_days: 30    # ... (not when it also breaks the 30-day level); the bot loads 31 days of BTC history at start
+  sweep_4h_m60: 0       # 4h sweep + stretched 1h rule off (it lost money out of sample)
 risk:
   mode: paper
   news_mode: window     # NFP / CPI / FOMC: no new entries from the release ...

@@ -198,11 +198,13 @@ class Strategy:
         lb = c.sweep_lookback_s
         k2 = int(round(c.sweep_days * 86400))
         if h.swept(t, d, k2, lb):
-            for n in (30, 14, 7, 5, 3):
-                if n * 86400 >= k2 and h.swept(t, d, n * 86400, lb):
-                    return f"{n}-day sweep"
-            return f"{c.sweep_days:g}-day sweep"
-        if h.swept(t, d, 14400, lb) and h.covers(3600, at=t):
+            mx = int(round(c.sweep_max_days * 86400))
+            if not (mx and h.swept(t, d, mx, lb)):            # sweep_max_days: a break of an even longer level is not skipped
+                for n in (30, 14, 7, 5, 3):
+                    if n * 86400 >= k2 and (not mx or n * 86400 < mx) and h.swept(t, d, n * 86400, lb):
+                        return f"{n}-day sweep"
+                return f"{c.sweep_days:g}-day sweep"
+        if c.sweep_4h_m60 > 0 and h.swept(t, d, 14400, lb) and h.covers(3600, at=t):
             p1 = h.price_at(t - 3600, max_age=0)
             if p1 is not None and d * (price - p1) / price * 100 >= c.sweep_4h_m60 * 100:
                 return "4h sweep + stretched 1h"

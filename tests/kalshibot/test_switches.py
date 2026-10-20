@@ -117,3 +117,22 @@ def test_stop_recheck_skips_lots_whose_bid_recovered():
     assert "market_sell" not in kinds(out) and len(st.open_lots()) == held
     out = st.step(view(203, mny=0.0, mark_y=0.10, bid_y=0.09))
     assert "market_sell" in kinds(out)
+
+
+def test_sweep_3_to_14_day_rule():
+    import numpy as np
+    from kalshibot.config import StrategyCfg
+    from kalshibot.history import BtcHistory
+    from kalshibot.strategy import Strategy
+    t0 = 1_790_000_000; n = 32 * 86400
+    base = np.full(n, 100.0)
+    def strat(arr, **kw):
+        cfg = StrategyCfg(sweep_days=3, sweep_max_days=30, sweep_4h_m60=0, **kw)
+        return Strategy(cfg, BtcHistory.from_array(t0, arr))
+    t = t0 + n - 1
+    a = base.copy(); a[n - 6 * 86400] = 101.0; a[n - 20 * 86400] = 102.0; a[-200:] = 101.5   # breaks the 14-day high, not the 30-day -> skip
+    assert strat(a).skip_reason(t, "y", 101.5) == "14-day sweep"
+    b = base.copy(); b[t0 - t0 + 1000] = 102.0; b[-200:] = 102.5     # also breaks the 30-day high -> not skipped
+    assert strat(b).skip_reason(t, "y", 102.5) is None
+    c = base.copy(); c[n - 2 * 86400] = 101.0; c[-200:] = 101.5      # only a 2-day high -> not skipped (sweep_days 3)
+    assert strat(c).skip_reason(t, "y", 101.5) is None

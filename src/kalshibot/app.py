@@ -65,7 +65,9 @@ class App:
         self.alerts = Alerter.from_env(settings.io.telegram_token_env, settings.io.telegram_chat_env)
         key_id, key_path = kalshi_credentials()
         self.rest = KalshiRest(key_id, key_path) if key_id and key_path else KalshiRest()
-        self.history = BtcHistory(max_days=4)
+        sc = settings.strategy                   # history long enough for the longest sweep level checked (3 days minimum)
+        self.hist_days = max(3.0, sc.sweep_days + 1, (sc.sweep_max_days + 1) if sc.sweep_max_days > 0 else 0)
+        self.history = BtcHistory(max_days=self.hist_days + 1)
         if settings.strategy.series.upper().startswith("KXGOLD"):
             from kalshibot.marketdata.gold import GoldFeed      # Pyth with PYTH_API_KEY, else Hyperliquid oracle; Dukascopy history seed
             self.btc = GoldFeed(self.history, rest=self.rest, data_dir=self.data)
@@ -429,7 +431,7 @@ class App:
                 loop.add_signal_handler(sig, self._on_signal, sig)
             except (NotImplementedError, RuntimeError):
                 pass
-        n = await self.btc.aseed_history(self.history, days=3)
+        n = await self.btc.aseed_history(self.history, days=self.hist_days)
         log.info("seeded %s minute bars of BTC history", n)
         self.server.start()
         self.alerts.started(mode)

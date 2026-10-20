@@ -17,7 +17,8 @@ strategy:
   max_range_2h: 0.031         # Skip a market if BTC's (high - low) / average over the 2 hours before it opens is above 3.1%.
   filters: true               # Liquidity-sweep filters (checked at the first entry of each market); true = skip risky markets.
   sweep_days: 2.0             # Skip if in the last 5 minutes BTC ran through its 2-day high (for YES) or low (for NO).
-  sweep_4h_m60: 0.003879      # Skip if BTC swept its 4-hour high/low AND moved >= 0.3879% our way in the last hour.
+  sweep_max_days: 0.0         # >0: don't skip when the broken level is at least this many days old (30 + sweep_days 3 = the 3-to-14-day rule). The bot then loads this many days of history at start.
+  sweep_4h_m60: 0.003879      # (0 = rule off) Skip if BTC swept its 4-hour high/low AND moved >= 0.3879% our way in the last hour.
   sweep_lookback_s: 300       # "Last 5 minutes" for the sweep checks, in seconds.
 
   # --- when to look for entries

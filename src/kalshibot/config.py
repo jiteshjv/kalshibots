@@ -40,7 +40,8 @@ class StrategyCfg:
     limit_fallback: bool = True          # ... then buy at market if not filled by the next check
     filters: bool = True                 # liquidity-sweep filters (checked at the first entry of a market)
     sweep_days: float = 2.0              # skip if the last 5 min ran through the prior 2-day high/low (our side)
-    sweep_4h_m60: float = 0.003879       # skip if 4h sweep AND 1h move our way >= 0.3879% (as a fraction)
+    sweep_max_days: float = 0.0          # >0: do NOT skip when the break is of a level at least this old (e.g. 30 -> 3-to-14-day rule); 0 = no limit
+    sweep_4h_m60: float = 0.003879       # skip if 4h sweep AND 1h move our way >= 0.3879% (as a fraction); 0 = rule off
     sweep_lookback_s: int = 300          # "last 5 minutes"
 
 

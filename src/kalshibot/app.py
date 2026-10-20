@@ -67,7 +67,7 @@ class App:
         self.rest = KalshiRest(key_id, key_path) if key_id and key_path else KalshiRest()
         self.history = BtcHistory(max_days=4)
         if settings.strategy.series.upper().startswith("KXGOLD"):
-            from kalshibot.marketdata.gold import GoldFeed      # Pyth (needs PYTH_API_KEY) + Dukascopy history seed
+            from kalshibot.marketdata.gold import GoldFeed      # Pyth with PYTH_API_KEY, else Hyperliquid oracle; Dukascopy history seed
             self.btc = GoldFeed(self.history, rest=self.rest, data_dir=self.data)
         else:
             self.btc = BtcFeed(rest=self.rest if self.rest.has_key else None, history=self.history)
@@ -190,8 +190,8 @@ class App:
             return
         st = Strategy(self.s.strategy, self.history, id_prefix=f"kb{int(now) % 100000}")
         st.start_market(m)
-        if st.skipped in ("no price history",) and self._no_key():
-            st.skipped = "no Pyth key"
+        if st.skipped == "no price history" and self._feed_down():
+            st.skipped = "no price feed"
         run = MarketRun(m, st)
         self.runs[m.ticker] = run
         self.current = run
@@ -337,14 +337,14 @@ class App:
         elif st.best:
             reason = "low moneyness"
         elif st.stale_blocks:
-            reason = "no Pyth key" if self._no_key() else "no price"
+            reason = "no price feed" if self._feed_down() else "no price"
         else:
             reason = "late start"
         self.journal.mark_market_skipped(run.market.ticker, reason)
 
-    def _no_key(self) -> bool:
-        """The gold feed has no API key, so there is no price at all (label skips with the cause, not a symptom)."""
-        return "PYTH_API_KEY" in (getattr(self.btc, "last_error", "") or "")
+    def _feed_down(self) -> bool:
+        """The price feed reports an error (label skips with the cause, not the symptom)."""
+        return bool(getattr(self.btc, "last_error", ""))
 
     @staticmethod
     def _selling(run: MarketRun) -> bool:

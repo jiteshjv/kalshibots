@@ -1,9 +1,10 @@
 """Live gold price for KXGOLD15M (paper/live), drop-in for BtcFeed (latest / age / run / stop / aseed_history).
 
-Kalshi settles gold on Pyth (Metal.Index.1OZGOLD/USD, 1-minute close). Live prices come from Pyth Hermes, which needs an
-API key:  PYTH_API_KEY=<key> in the bot's environment (.env). The key is sent as "Authorization: Bearer <key>" unless
-PYTH_AUTH_HEADER names another header (e.g. x-api-key). PYTH_URL overrides the Hermes base URL.
-Without a key every tick is stale, so the strategy opens nothing (the dashboard shows "no gold price").
+Kalshi settles gold on Pyth (Metal.Index.1OZGOLD/USD, 1-minute close). Live prices:
+  * PYTH_API_KEY set: Pyth Hermes (the settlement source). Sent as "Authorization: Bearer <key>" unless PYTH_AUTH_HEADER
+    names another header (e.g. x-api-key). PYTH_URL overrides the Hermes base URL.
+  * otherwise (free, no key): the Hyperliquid xyz:GOLD oracle price, falling back to the Swissquote public quote (mid)
+    when Hyperliquid fails. Live test vs Kalshi strikes (Oct 20): both within ~$0.2 typical, ~$0.3 p90.
 
 History (2-hour range, 2-day sweeps) is seeded from Dukascopy XAU/USD ticks (public, no key) for the last `days` days and
 shifted to the Pyth level with the median (Kalshi strike - Dukascopy price at the open) of recent settled gold markets.
@@ -28,6 +29,8 @@ from kalshibot.types import BtcTick
 
 log = logging.getLogger("kalshibot.gold")
 PYTH_GOLD_ID = "7fd2c87083dd8fd5af2486a43f40b8e444acd77fda4e96263a53421cd079c387"   # Metal.Index.1OZGOLD/USD
+HL_URL = "https://api.hyperliquid.xyz/info"
+SQ_URL = "https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD"
 DUKA = "https://datafeed.dukascopy.com/datafeed/XAUUSD/{y}/{m:02d}/{d:02d}/{h:02d}h_ticks.bi5"
 
 
@@ -43,7 +46,8 @@ class GoldFeed:
         self._pub: float | None = None
         self._latest: BtcTick | None = None
         self._stop = False
-        self.last_error = "" if self.key else "PYTH_API_KEY not set: no gold price"
+        self.source = "pyth" if self.key else "hyperliquid"
+        self.last_error = ""
 
     # -- feed interface ----------------------------------------------------------------------------------------
     def age(self, now: float | None = None) -> float | None:
@@ -55,7 +59,30 @@ class GoldFeed:
     def stop(self) -> None:
         self._stop = True
 
+    def _get(self, url: str, body: bytes | None = None):
+        hdr = {"User-Agent": "Mozilla/5.0"} | ({"Content-Type": "application/json"} if body else {})
+        with urllib.request.urlopen(urllib.request.Request(url, data=body, headers=hdr), context=ssl_context(), timeout=5) as r:
+            return json.load(r)
+
+    def _fetch_free(self) -> tuple[float, float]:
+        """Hyperliquid xyz:GOLD oracle; Swissquote mid when Hyperliquid fails. Both stamped with the local clock."""
+        try:
+            meta, ctx = self._get(HL_URL, json.dumps({"type": "metaAndAssetCtxs", "dex": "xyz"}).encode())
+            i = [a["name"] for a in meta["universe"]].index("xyz:GOLD")
+            self.source = "hyperliquid"
+            return float(ctx[i]["oraclePx"]), time.time()
+        except Exception as e:
+            hl_err = e
+        try:
+            q = [x for x in self._get(SQ_URL)[0]["spreadProfilePrices"] if x["spreadProfile"] == "elite"][0]
+            self.source = "swissquote"
+            return (float(q["bid"]) + float(q["ask"])) / 2, time.time()
+        except Exception as e:
+            raise RuntimeError(f"hyperliquid: {hl_err}; swissquote: {e}") from None
+
     def _fetch(self) -> tuple[float, float]:
+        if not self.key:
+            return self._fetch_free()
         url = f"{self.base}/v2/updates/price/latest?ids[]={self.feed_id}&parsed=true"
         hdr = {"User-Agent": "kalshibot"}
         if self.key:
@@ -68,19 +95,18 @@ class GoldFeed:
         warned = 0.0
         while not self._stop:
             now = time.time()
-            if self.key:
-                try:
-                    px, pub = await asyncio.to_thread(self._fetch)
-                    self._px, self._pub, self.last_error = px, pub, ""
-                except Exception as e:                       # keep going; ticks turn stale
-                    self.last_error = f"pyth: {type(e).__name__}: {e}"
+            try:
+                px, pub = await asyncio.to_thread(self._fetch)
+                self._px, self._pub, self.last_error = px, pub, ""
+            except Exception as e:                           # keep going; ticks turn stale
+                self.last_error = f"{'pyth' if self.key else 'gold feed'}: {type(e).__name__}: {e}"
             stale = self._px is None or now - (self._pub or 0) > self.stale_s
             if stale and now - warned > 300 and self.last_error:
                 log.warning("gold price unavailable (%s)", self.last_error)
                 warned = now
             if not stale and self.history is not None:
                 self.history.add(math.floor(now), self._px)
-            self._latest = BtcTick(ts=now, price=self._px if self._px is not None else math.nan, source="pyth", stale=stale)
+            self._latest = BtcTick(ts=now, price=self._px if self._px is not None else math.nan, source=self.source, stale=stale)
             await asyncio.sleep(self.poll_s)
 
     # -- history seed (Dukascopy) --------------------------------------------------------------------------------

@@ -38,10 +38,21 @@ def test_skip_hours_pt():
     assert seen == {True, False}
 
 
-def test_gold_feed_without_key_is_stale(monkeypatch):
+def test_gold_feed_without_key_uses_hyperliquid_then_swissquote(monkeypatch):
     monkeypatch.delenv("PYTH_API_KEY", raising=False)
     f = GoldFeed(None)
+    hl = ({"universe": [{"name": "xyz:TSLA"}, {"name": "xyz:GOLD"}]}, [{"oraclePx": "1"}, {"oraclePx": "4123.4"}])
+    sq = [{"spreadProfilePrices": [{"spreadProfile": "elite", "bid": 4123.0, "ask": 4124.0}]}]
+    monkeypatch.setattr(f, "_get", lambda url, body=None: hl if "hyperliquid" in url else sq)
+    assert f._fetch()[0] == 4123.4 and f.source == "hyperliquid"
+    def hl_down(url, body=None):
+        if "hyperliquid" in url:
+            raise OSError("down")
+        return sq
+    monkeypatch.setattr(f, "_get", hl_down)
+    assert f._fetch()[0] == 4123.5 and f.source == "swissquote"
+    monkeypatch.setattr(f, "_get", lambda url, body=None: (_ for _ in ()).throw(OSError("down")))
     async def go():
         t = asyncio.create_task(f.run()); await asyncio.sleep(0.05); f.stop(); await asyncio.sleep(0); t.cancel()
     asyncio.run(go())
-    assert f.latest().stale and "PYTH_API_KEY" in f.last_error
+    assert f.latest().stale and "hyperliquid" in f.last_error

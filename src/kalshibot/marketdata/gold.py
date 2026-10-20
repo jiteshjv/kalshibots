@@ -1,0 +1,154 @@
+"""Live gold price for KXGOLD15M (paper/live), drop-in for BtcFeed (latest / age / run / stop / aseed_history).
+
+Kalshi settles gold on Pyth (Metal.Index.1OZGOLD/USD, 1-minute close). Live prices come from Pyth Hermes, which needs an
+API key:  PYTH_API_KEY=<key> in the bot's environment (.env). The key is sent as "Authorization: Bearer <key>" unless
+PYTH_AUTH_HEADER names another header (e.g. x-api-key). PYTH_URL overrides the Hermes base URL.
+Without a key every tick is stale, so the strategy opens nothing (the dashboard shows "no gold price").
+
+History (2-hour range, 2-day sweeps) is seeded from Dukascopy XAU/USD ticks (public, no key) for the last `days` days and
+shifted to the Pyth level with the median (Kalshi strike - Dukascopy price at the open) of recent settled gold markets.
+"""
+from __future__ import annotations
+
+import asyncio
+import datetime as dt
+import json
+import logging
+import lzma
+import math
+import os
+import statistics
+import struct
+import time
+import urllib.request
+from pathlib import Path
+
+from kalshibot.marketdata.btc import ssl_context
+from kalshibot.types import BtcTick
+
+log = logging.getLogger("kalshibot.gold")
+PYTH_GOLD_ID = "7fd2c87083dd8fd5af2486a43f40b8e444acd77fda4e96263a53421cd079c387"   # Metal.Index.1OZGOLD/USD
+DUKA = "https://datafeed.dukascopy.com/datafeed/XAUUSD/{y}/{m:02d}/{d:02d}/{h:02d}h_ticks.bi5"
+
+
+class GoldFeed:
+    def __init__(self, history=None, rest=None, data_dir: str | os.PathLike | None = None, *, poll_s: float = 1.0,
+                 stale_s: float = 5.0, feed_id: str = PYTH_GOLD_ID):
+        self.history, self.rest, self.poll_s, self.stale_s, self.feed_id = history, rest, poll_s, stale_s, feed_id
+        self.cache = Path(os.path.expanduser(str(data_dir or "~/kalshibot-gold-data"))) / "duka_cache"
+        self.key = os.environ.get("PYTH_API_KEY", "").strip()
+        self.header = os.environ.get("PYTH_AUTH_HEADER", "Authorization").strip()
+        self.base = os.environ.get("PYTH_URL", "https://hermes.pyth.network").rstrip("/")
+        self._px: float | None = None
+        self._pub: float | None = None
+        self._latest: BtcTick | None = None
+        self._stop = False
+        self.last_error = "" if self.key else "PYTH_API_KEY not set: no gold price"
+
+    # -- feed interface ----------------------------------------------------------------------------------------
+    def age(self, now: float | None = None) -> float | None:
+        return None if self._pub is None else (time.time() if now is None else now) - self._pub
+
+    def latest(self) -> BtcTick | None:
+        return self._latest
+
+    def stop(self) -> None:
+        self._stop = True
+
+    def _fetch(self) -> tuple[float, float]:
+        url = f"{self.base}/v2/updates/price/latest?ids[]={self.feed_id}&parsed=true"
+        hdr = {"User-Agent": "kalshibot"}
+        if self.key:
+            hdr[self.header] = f"Bearer {self.key}" if self.header.lower() == "authorization" else self.key
+        with urllib.request.urlopen(urllib.request.Request(url, headers=hdr), context=ssl_context(), timeout=5) as r:
+            p = json.load(r)["parsed"][0]["price"]
+        return int(p["price"]) * 10 ** int(p["expo"]), float(p["publish_time"])
+
+    async def run(self) -> None:
+        warned = 0.0
+        while not self._stop:
+            now = time.time()
+            if self.key:
+                try:
+                    px, pub = await asyncio.to_thread(self._fetch)
+                    self._px, self._pub, self.last_error = px, pub, ""
+                except Exception as e:                       # keep going; ticks turn stale
+                    self.last_error = f"pyth: {type(e).__name__}: {e}"
+            stale = self._px is None or now - (self._pub or 0) > self.stale_s
+            if stale and now - warned > 300 and self.last_error:
+                log.warning("gold price unavailable (%s)", self.last_error)
+                warned = now
+            if not stale and self.history is not None:
+                self.history.add(math.floor(now), self._px)
+            self._latest = BtcTick(ts=now, price=self._px if self._px is not None else math.nan, source="pyth", stale=stale)
+            await asyncio.sleep(self.poll_s)
+
+    # -- history seed (Dukascopy) --------------------------------------------------------------------------------
+    def _hour(self, t: int) -> list[tuple[int, float]]:
+        d = dt.datetime.fromtimestamp(t, dt.timezone.utc)
+        f = self.cache / f"{d:%Y-%m-%d_%H}.bi5"
+        if not f.exists() or f.stat().st_size == 0 and time.time() - t < 3 * 3600:
+            url = DUKA.format(y=d.year, m=d.month - 1, d=d.day, h=d.hour)
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "kalshibot"}),
+                                            context=ssl_context(), timeout=30) as r:
+                    raw = r.read()
+            except urllib.error.HTTPError as e:
+                raw = b"" if e.code == 404 else None
+            except Exception:
+                raw = None
+            if raw is None:
+                return []
+            self.cache.mkdir(parents=True, exist_ok=True)
+            f.write_bytes(raw)
+            time.sleep(0.5)
+        raw = f.read_bytes()
+        if not raw:
+            return []
+        try:
+            data = lzma.decompress(raw)
+        except Exception:
+            return []
+        out = []
+        for i in range(0, len(data) - 19, 20):
+            ms, ask, bid, _, _ = struct.unpack(">IIIff", data[i:i + 20])
+            out.append((t + ms // 1000, (ask + bid) / 2000.0))
+        return out
+
+    def _offset(self, ticks: dict[int, float]) -> float:
+        """Median (Kalshi strike - Dukascopy price just before the open) over recent settled gold markets."""
+        if self.rest is None or not ticks:
+            return 0.0
+        try:
+            ms = self.rest.request("GET", "/markets", params={"series_ticker": "KXGOLD15M", "status": "settled", "limit": 60}).get("markets", [])
+        except Exception:
+            return 0.0
+        keys = sorted(ticks)
+        diffs = []
+        for m in ms:
+            k, ot = m.get("floor_strike"), m.get("open_time")
+            if not k or not ot:
+                continue
+            op = int(dt.datetime.fromisoformat(ot.replace("Z", "+00:00")).timestamp())
+            prev = [ticks[s] for s in range(op - 60, op) if s in ticks]
+            if prev:
+                diffs.append(float(k) - prev[-1])
+        return statistics.median(diffs) if diffs else 0.0
+
+    def seed_history(self, history, days: float = 3) -> int:
+        end = int(time.time()) // 3600 * 3600
+        ticks: dict[int, float] = {}
+        for t in range(end - int(days * 86400), end + 3600, 3600):
+            for s, p in self._hour(t):
+                ticks[s] = p
+        off = self._offset(ticks)
+        bars: dict[int, list[float]] = {}
+        for s in sorted(ticks):
+            bars.setdefault(s // 60 * 60, []).append(ticks[s] + off)
+        for m, v in sorted(bars.items()):
+            history.add_minute_bar(m, max(v), min(v), v[-1])
+        log.info("seeded %d gold minute bars from Dukascopy (offset to Pyth %+.2f)", len(bars), off)
+        return len(bars)
+
+    async def aseed_history(self, history, days: float = 3) -> int:
+        return await asyncio.to_thread(self.seed_history, history, days)

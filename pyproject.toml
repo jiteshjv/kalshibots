@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kalshi-btc15m-bot"
+version = "0.1.0"
+description = "Risk-capped paper/live trader for Kalshi KXBTC15M markets"
+requires-python = ">=3.11"
+dependencies = [
+  "requests>=2.32",
+]
+
+[project.optional-dependencies]
+dev = ["cryptography>=43", "pytest>=8.3"]
+
+[project.scripts]
+kalshi-btc15m = "kalshi_btc_bot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+

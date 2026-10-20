@@ -1,0 +1,3 @@
+{"cursor": "", "markets": [
+ {"ticker": "KXBTC15M-26OCT191400-00", "open_time": "2026-10-19T18:00:00Z", "close_time": "2026-10-19T18:15:00Z", "floor_strike": null, "status": "open"},
+ {"ticker": "KXBTC15M-26OCT191345-45", "open_time": "2026-10-19T17:45:00Z", "close_time": "2026-10-19T18:00:00Z", "floor_strike": 108123.45, "status": "open"}]}

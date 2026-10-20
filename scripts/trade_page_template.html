@@ -1,0 +1,83 @@
+<title>v1 Trade Log</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: summary strip, per-day ledger, then a filterable trade ledger like a broker's fill report */
+:root{--bg:#f5f6f4;--panel:#ffffff;--fg:#1b2420;--muted:#5d6b64;--line:#dde3df;--accent:#1f6f5c;--gain:#1d7a46;--loss:#b3362b;--chip:#e9eeeb;
+--sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121715;--panel:#1a211e;--fg:#e4ebe7;--muted:#93a39b;--line:#2b3531;--accent:#5cc2a6;--gain:#5fd08f;--loss:#ff7b6e;--chip:#24302b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#121715;--panel:#1a211e;--fg:#e4ebe7;--muted:#93a39b;--line:#2b3531;--accent:#5cc2a6;--gain:#5fd08f;--loss:#ff7b6e;--chip:#24302b;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.45}
+.wrap{max-width:1400px;margin:0 auto;padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:20px}
+h1{font-size:22px;font-weight:600;margin:0;text-wrap:balance}
+h2{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0}
+p{margin:0;max-width:75ch;color:var(--muted)}
+.rules{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:var(--chip);border-radius:4px;padding:3px 8px;font-size:12px;font-family:var(--mono)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.stat .k{font-size:12px;color:var(--muted)}.stat .v{font-family:var(--mono);font-size:20px;font-weight:500;font-variant-numeric:tabular-nums}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:6px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);position:sticky;top:0;background:var(--panel)}
+td{font-family:var(--mono);font-size:12.5px}
+td.l,th.l{text-align:left}
+tr:hover td{background:var(--chip)}
+.pos{color:var(--gain)}.neg{color:var(--loss)}.mut{color:var(--muted)}
+.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-family:var(--sans);font-weight:500}
+.t-stop{background:color-mix(in srgb,var(--loss) 15%,transparent);color:var(--loss)}
+.t-settle{background:color-mix(in srgb,var(--gain) 15%,transparent);color:var(--gain)}
+.t-skip{background:var(--chip);color:var(--muted)}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.controls label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+select{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--fg)}
+select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.count{font-size:12px;color:var(--muted);margin-left:auto}
+</style>
+<div class="wrap">
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <h1>v1 trades, backtest at 1,500 contracts</h1>
+    <p>Every v1 signal from Oct 5 to Oct 19 with the final rules: entry by a bid 1¢ under the signal price, and alongside, what paying the ask would have done. Strike is Kalshi's official one. Times are Pacific. P&amp;L is after Kalshi fees.</p><p><strong>__NOTE__</strong></p>
+    <div class="rules"><span class="chip">2h range ≤ 3.1%</span><span class="chip">after min 2</span><span class="chip">BTC ≥ 0.175% past strike</span><span class="chip">buy 80–95¢</span><span class="chip">bid 1¢ under, 2 min, then take</span><span class="chip">stop: BTC back at strike or our side ≤ 50¢</span><span class="chip">else hold to $1 / $0</span></div>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div style="display:flex;flex-direction:column;gap:8px"><h2>By day</h2><div class="box"><table id="days"></table></div></div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <h2>Every trade</h2>
+    <div class="controls">
+      <label for="fday">Day<select id="fday"><option value="">All days</option></select></label>
+      <label for="fexit">Exit<select id="fexit"><option value="">All</option><option value="stop">Stopped</option><option value="settle">Held to end</option><option value="skipped">Skipped (bid not filled)</option></select></label>
+      <label for="fside">Side<select id="fside"><option value="">Both</option><option>YES (up)</option><option>NO (down)</option></select></label>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="box"><table id="trades"></table></div>
+  </div>
+  <p style="font-size:12px">Stop = the first second our BTC price is back at the strike, or our side trades at 50¢ or less; it sells at the next real Kalshi trade price. Fills use the per-second prices of real Kalshi trades; a limit bid counts as filled only when trades go through it. Source: scripts/v1_final.py. Oct 5–15 is the end of the 66-day set the rules were chosen on; Oct 16 onward is new data the rules never saw.</p>
+</div>
+<script>
+const D=__DATA__;
+const $=s=>document.querySelector(s);
+const usd=v=>v==null?"":(v<0?"−$":"+$")+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:0});
+const cls=v=>v==null?"":(v>0?"pos":v<0?"neg":"mut");
+const c=v=>v==null?"":(v*100).toFixed(1)+"¢";
+const m=v=>v==null?"":Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const T=D.filter(r=>r.entry!=="skipped");
+const sum=a=>a.reduce((x,y)=>x+(y||0),0);
+const tot=sum(D.map(r=>r.pnl_usd)),totT=sum(D.map(r=>r.pnl_usd_taker_v1));
+const stops=T.filter(r=>r.exit==="stop");
+$("#stats").innerHTML=[["Trades",T.length+" of "+D.length],["P&L, 1¢ bid",usd(tot)],["P&L, paying ask",usd(totT)],["Per trade, 1¢ bid",usd(tot/T.length)],["Stopped",Math.round(stops.length/T.length*100)+"%"],["Avg stop loss",usd(sum(stops.map(r=>r.pnl_usd))/stops.length)]]
+ .map(([k,v])=>`<div class="stat"><span class="k">${k}</span><span class="v ${typeof v==="string"&&v.startsWith("−")?"neg":typeof v==="string"&&v.startsWith("+")?"pos":""}">${v}</span></div>`).join("");
+const days=[...new Set(D.map(r=>r.day))];
+let run=0,runT=0;
+$("#days").innerHTML="<tr><th class='l'>Day</th><th>Signals</th><th>Trades</th><th>Stops</th><th>P&amp;L 1¢ bid</th><th>Running</th><th>P&amp;L paying ask</th><th>Running</th></tr>"+days.map(dy=>{const x=D.filter(r=>r.day===dy),p=sum(x.map(r=>r.pnl_usd)),q=sum(x.map(r=>r.pnl_usd_taker_v1));run+=p;runT+=q;
+ return `<tr><td class="l">${dy}</td><td>${x.length}</td><td>${x.filter(r=>r.entry!=="skipped").length}</td><td>${x.filter(r=>r.exit==="stop").length}</td><td class="${cls(p)}">${usd(p)}</td><td class="${cls(run)}">${usd(run)}</td><td class="${cls(q)}">${usd(q)}</td><td class="${cls(runT)}">${usd(runT)}</td></tr>`}).join("");
+days.forEach(dy=>$("#fday").insertAdjacentHTML("beforeend",`<option>${dy}</option>`));
+const H="<tr><th class='l'>Day</th><th class='l'>Window</th><th class='l'>Side</th><th>Strike = stop</th><th>BTC at signal</th><th>Signal</th><th>Ask at signal</th><th class='l'>Entry</th><th>Entry at</th><th>Buy</th><th class='l'>Exit</th><th class='l'>Stop reason</th><th>Exit at</th><th>Exit price</th><th>BTC at exit</th><th class='l'>Settled</th><th>P&amp;L 1¢ bid</th><th>P&amp;L paying ask</th></tr>";
+function draw(){const fd=$("#fday").value,fe=$("#fexit").value,fs=$("#fside").value;
+ const R=D.filter(r=>(!fd||r.day===fd)&&(!fs||r.side===fs)&&(!fe||(fe==="skipped"?r.entry==="skipped":r.exit===fe)));
+ $("#count").textContent=R.length+" rows · P&L "+usd(sum(R.map(r=>r.pnl_usd)));
+ $("#trades").innerHTML=H+R.map(r=>{const ex=r.entry==="skipped"?'<span class="tag t-skip">skipped</span>':`<span class="tag t-${r.exit}">${r.exit==="stop"?"stopped":"held"}</span>`;
+  return `<tr><td class="l">${r.day}</td><td class="l">${r.window_pt}</td><td class="l">${r.side}</td><td>${m(r.strike)}</td><td>${m(r.btc_at_signal)}</td><td>${r.signal_time||""}</td><td>${c(r.signal_px)}</td><td class="l">${r.entry==="skipped"?"—":r.entry}</td><td>${r.entry_time||""}</td><td>${c(r.buy)}</td><td class="l">${ex}</td><td class="l">${r.stop_reason||""}</td><td>${r.exit_time||""}</td><td>${c(r.exit_px)}</td><td>${m(r.btc_at_exit)}</td><td class="l">${r.result}</td><td class="${cls(r.pnl_usd)}">${r.entry==="skipped"?"$0":usd(r.pnl_usd)}</td><td class="${cls(r.pnl_usd_taker_v1)}">${usd(r.pnl_usd_taker_v1)}</td></tr>`}).join("");}
+["#fday","#fexit","#fside"].forEach(s=>$(s).addEventListener("change",draw));draw();
+</script>

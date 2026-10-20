@@ -1,0 +1,15 @@
+# Paper run on this Mac: RECOMMENDED setup (2026-10-20, tested Jun 1 - Oct 19), simulated fills, order book recorded locally.
+strategy:
+  stop_pct: 0.25        # stop an entry 25% below its buy price ...
+  stop_lead: 0.0003     # ... AND BTC within 0.03% of the strike
+  stop_recheck: true    # sell only if the bid is still at or below the stop price
+  jump_pause: 0.005     # no new entries for 15 min after a 1-minute BTC move above 0.5%
+risk:
+  mode: paper
+  news_mode: window     # NFP / CPI / FOMC: no new entries from the release ...
+  news_events: jobs,cpi,fomc
+  news_before_min: 0
+  news_after_min: 60    # ... until 60 minutes after it
+io:
+  data_dir: ~/kalshibot-data
+  record: true

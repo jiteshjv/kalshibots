@@ -1,0 +1,25 @@
+# secrets
+.env
+*.pem
+*.key
+# local environment
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+.DS_Store
+# downloaded market/price data and backtest output (GBs; rebuild with scripts/)
+data/
+data_*/
+!data_news/
+data_news/*
+!data_news/calendar.csv
+results/
+logs/
+*.npy
+*.npz
+*.pkl
+*.zip
+*.bi5
+*.jsonl
+*.jsonl.gz

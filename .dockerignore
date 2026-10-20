@@ -1,0 +1,6 @@
+# Only src/kalshibot is needed in the image.
+*
+!src/kalshibot/**
+!src/kalshibot
+!src
+**/__pycache__

@@ -1,0 +1,86 @@
+<title>Her Rule Trade Log</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: rule chips, summary figures, per-day ledger, then one row per market that opens to its 100-contract entries */
+:root{--bg:#f4f5f7;--panel:#ffffff;--fg:#1a1f2b;--muted:#5b6475;--line:#dde1e8;--accent:#2b5fb8;--gain:#18794e;--loss:#b4332b;--chip:#e8ecf3;--sub:#f8f9fb;
+--sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#11141a;--panel:#191d25;--fg:#e3e7ef;--muted:#949db0;--line:#2a303c;--accent:#7aa5f0;--gain:#5ccf96;--loss:#ff7c70;--chip:#232a36;--sub:#151920;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#11141a;--panel:#191d25;--fg:#e3e7ef;--muted:#949db0;--line:#2a303c;--accent:#7aa5f0;--gain:#5ccf96;--loss:#ff7c70;--chip:#232a36;--sub:#151920;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.45}
+.wrap{max-width:1400px;margin:0 auto;padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:20px}
+h1{font-size:22px;font-weight:600;margin:0;text-wrap:balance}
+h2{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0}
+p{margin:0;max-width:80ch;color:var(--muted)}
+.rules{display:flex;flex-wrap:wrap;gap:6px}.chip{background:var(--chip);border-radius:4px;padding:3px 8px;font-size:12px;font-family:var(--mono)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.stat .k{font-size:12px;color:var(--muted)}.stat .v{font-family:var(--mono);font-size:20px;font-weight:500;font-variant-numeric:tabular-nums}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:6px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);background:var(--panel)}
+td{font-family:var(--mono);font-size:12.5px}td.l,th.l{text-align:left}
+tr.mk{cursor:pointer}tr.mk:hover td{background:var(--chip)}tr.mk:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+tr.sub td{background:var(--sub);padding:0}
+.inner{padding:8px 10px 12px 34px}.inner table td,.inner table th{font-size:12px;padding:4px 8px}
+.pos{color:var(--gain)}.neg{color:var(--loss)}.mut{color:var(--muted)}
+.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-family:var(--sans);font-weight:500}
+.t-stop{background:color-mix(in srgb,var(--loss) 15%,transparent);color:var(--loss)}
+.t-tp{background:color-mix(in srgb,var(--gain) 15%,transparent);color:var(--gain)}
+.t-set{background:var(--chip);color:var(--muted)}
+.caret{display:inline-block;width:12px;color:var(--muted)}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.controls label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+select{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--fg)}
+select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.count{font-size:12px;color:var(--muted);margin-left:auto}
+.split{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;background:var(--chip);color:var(--muted);font-family:var(--sans)}
+</style>
+<div class="wrap">
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <h1>Her rule, backtest Aug 11 – Oct 19 (100 contracts per entry)</h1>
+    <p>Every market the rule traded, and every 100-contract entry inside it, with its own 30% stop. Market orders for entries and stops (a stop sells at the first trades after it triggers); a resting sell at 99.5¢; after a full stop-out it can roll to the other side. Kalshi's official strike, real Kalshi trade prices, fees included. Times are Pacific. Click a market to see its entries.</p>
+    <div class="rules"><span class="chip">2h range ≤ 3.1%</span><span class="chip">check every 10 s from min 2</span><span class="chip">moneyness ≥ 0.15% → 0.05% by min 15</span><span class="chip">buy 100 at market if &lt; 98.5¢</span><span class="chip">≤ 5,000 held at once</span><span class="chip">roll to other side after a full stop-out</span><span class="chip">each entry: stop 30% below its price</span><span class="chip">sell all at 99.5¢</span><span class="chip">else settle $1 / $0</span></div>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div style="display:flex;flex-direction:column;gap:8px"><h2>By day</h2><div class="box"><table id="days"></table></div></div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <h2>Markets</h2>
+    <div class="controls">
+      <label for="fmon">Month<select id="fmon"><option value="">All</option><option>Aug</option><option>Sep</option><option>Oct</option></select></label><label for="fmon">Month<select id="fmon"><option value="">All</option><option>Aug</option><option>Sep</option><option>Oct</option></select></label><label for="fday">Day<select id="fday"><option value="">All days</option></select></label>
+      <label for="fres">Market P&amp;L<select id="fres"><option value="">All</option><option value="w">Profitable</option><option value="l">Losing</option><option value="s">Had stops</option></select></label>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="box"><table id="mk"></table></div>
+  </div>
+  <p style="font-size:12px">Aug 11 – Oct 15 is the 66-day set the rule was tuned on; Oct 16–19 (Monday to about noon PT) is new data. Stops sell at the next real Kalshi trade, usually a few cents under the stop level. Sources: scripts/her_trades.py → results/her_*_markets.csv and her_*_entries.csv.</p>
+</div>
+<script>
+const D=__DATA__;const M=D.m,E=D.e;const $=s=>document.querySelector(s);
+const usd=v=>v==null?"":(v<0?"−$":"+$")+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:0});
+const cls=v=>v>0?"pos":v<0?"neg":"mut";const c=v=>v==null?"":(v*100).toFixed(1)+"¢";
+const sum=a=>a.reduce((x,y)=>x+(y||0),0);
+const isNew=d=>/Oct (16|17|18|19)/.test(d)||(/Oct 15/.test(d)&&false);
+const tot=sum(M.map(r=>r.pnl)),ents=sum(M.map(r=>r.entries)),stp=sum(M.map(r=>r.stopped));
+const days=[...new Set(M.map(r=>r.day))];
+const fs=["Fri Oct 16","Sat Oct 17","Sun Oct 18"];const fri=sum(M.filter(r=>fs.includes(r.day)).map(r=>r.pnl));
+$("#stats").innerHTML=[["Markets traded",M.length.toLocaleString()],["Entries (100 each)",ents.toLocaleString()],["Total P&L",usd(tot)],["Per day",usd(tot/days.length)],["Entries stopped",Math.round(stp/ents*100)+"%"],["Fri–Sun Oct 16–18",usd(fri)]]
+ .map(([k,v])=>`<div class="stat"><span class="k">${k}</span><span class="v ${v.startsWith?.("−")?"neg":v.startsWith?.("+")?"pos":""}">${v}</span></div>`).join("");
+let run=0;
+$("#days").innerHTML="<tr><th class='l'>Day</th><th class='l'>Data</th><th>Markets</th><th>Entries</th><th>Contracts</th><th>Stopped</th><th>Sold 99.5¢</th><th>Settled</th><th>P&amp;L</th><th>Running</th></tr>"+days.map(dy=>{const x=M.filter(r=>r.day===dy),p=sum(x.map(r=>r.pnl));run+=p;
+ return `<tr><td class="l">${dy}</td><td class="l"><span class="split">${isNew(dy)?"new":"tuned on"}</span></td><td>${x.length}</td><td>${sum(x.map(r=>r.entries))}</td><td>${sum(x.map(r=>r.contracts)).toLocaleString()}</td><td>${sum(x.map(r=>r.stopped))}</td><td>${sum(x.map(r=>r.sold995))}</td><td>${sum(x.map(r=>r.settled))}</td><td class="${cls(p)}">${usd(p)}</td><td class="${cls(run)}">${usd(run)}</td></tr>`}).join("");
+days.forEach(dy=>$("#fday").insertAdjacentHTML("beforeend",`<option>${dy}</option>`));
+const open=new Set();
+const H="<tr><th class='l'></th><th class='l'>Day</th><th class='l'>Window</th><th class='l'>Side</th><th>Strike</th><th class='l'>Settled</th><th>First entry</th><th>Entries</th><th>Contracts</th><th>Avg buy</th><th>Stopped</th><th>Sold 99.5¢</th><th>Settled</th><th>P&amp;L</th></tr>";
+function sub(t){const rows=E[t]||[];
+ return `<tr class="sub"><td colspan="14"><div class="inner"><table><tr><th>#</th><th>Time</th><th class="l">Side</th><th>Moneyness</th><th>Needed</th><th>Buy</th><th>Stop (−30%)</th><th class="l">Exit</th><th>Exit time</th><th>Exit price</th><th>P&amp;L</th></tr>`+
+ rows.map(([n,t1,sd,mn,th,b,s,ex,t2,xp,p])=>`<tr><td>${n}</td><td>${t1}</td><td class="l">${sd==="Y"?"YES":"NO"}</td><td>${mn.toFixed(3)}%</td><td>${th.toFixed(3)}%</td><td>${c(b)}</td><td>${c(s)}</td><td class="l"><span class="tag ${ex==="stopped"?"t-stop":ex==="sold 99.5c"?"t-tp":"t-set"}">${ex==="sold 99.5c"?"sold 99.5¢":ex}</span></td><td>${t2}</td><td>${c(xp)}</td><td class="${cls(p)}">${usd(p)}</td></tr>`).join("")+"</table></div></td></tr>"}
+function draw(){const fd=$("#fday").value,fr=$("#fres").value;
+ const fm=$("#fmon").value;const R=M.filter(r=>(!fm||r.day.includes(fm))&&(!fd||r.day===fd)&&(!fr||(fr==="w"?r.pnl>0:fr==="l"?r.pnl<=0:r.stopped>0)));
+ $("#count").textContent=R.length+" markets · "+usd(sum(R.map(r=>r.pnl)));
+ $("#mk").innerHTML=H+R.map(r=>`<tr class="mk" tabindex="0" data-t="${r.ticker}"><td class="l"><span class="caret">${open.has(r.ticker)?"▾":"▸"}</span></td><td class="l">${r.day}</td><td class="l">${r.window_pt}</td><td class="l">${r.side}</td><td>${Number(r.strike).toLocaleString("en-US",{minimumFractionDigits:2})}</td><td class="l">${r.result}</td><td>${r.first_entry||""}</td><td>${r.entries}</td><td>${r.contracts.toLocaleString()}</td><td>${c(r.avg_buy)}</td><td>${r.stopped}</td><td>${r.sold995}</td><td>${r.settled}</td><td class="${cls(r.pnl)}">${usd(r.pnl)}</td></tr>`+(open.has(r.ticker)?sub(r.ticker):"")).join("");}
+$("#mk").addEventListener("click",e=>{const tr=e.target.closest("tr.mk");if(!tr)return;const t=tr.dataset.t;open.has(t)?open.delete(t):open.add(t);draw();});
+$("#mk").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches("tr.mk")){e.preventDefault();e.target.click();}});
+["#fmon","#fday","#fres"].forEach(s=>$(s).addEventListener("change",draw));draw();
+</script>

@@ -1,0 +1,44 @@
+# kalshibot - one bot per person, with that person's own Kalshi API key. See docs/SETUP.md.
+#
+# Files next to this one:
+#   config.yaml        your settings (copy config.example.yaml)
+#   .env               secrets: KALSHI_API_KEY_ID, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, KALSHIBOT_DASH_TOKEN
+#   secrets/kalshi.pem your Kalshi private key (never share it, never commit it)
+#   data/              created automatically: journal, logs, dashboard data
+#
+# Start: docker compose up -d --build     Stop: docker compose down     Logs: docker compose logs -f kalshibot
+
+services:
+  kalshibot:
+    build: .
+    image: kalshibot:latest
+    container_name: kalshibot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - ./data:/data
+      - ./secrets/kalshi.pem:/secrets/kalshi.pem:ro
+    ports:
+      # Dashboard: reachable ONLY from the server itself (use an SSH tunnel, see SETUP.md). Do not remove 127.0.0.1.
+      - "127.0.0.1:8787:8787"
+    stop_grace_period: 30s   # time to cancel open orders on shutdown
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  # Sends a Telegram message if the bot stops writing its heartbeat (crash, hang, container stopped).
+  watchdog:
+    image: kalshibot:latest
+    container_name: kalshibot-watchdog
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [kalshibot]
+    volumes:
+      - ./data:/data:ro
+    command: ["python", "-m", "kalshibot.alerts", "watch", "--data-dir", "/data", "--max-age", "90"]
+    healthcheck:
+      disable: true
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }

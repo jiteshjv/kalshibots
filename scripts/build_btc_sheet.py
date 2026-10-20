@@ -1,0 +1,57 @@
+# BTC sheet data (Jun 1 - Oct 19): for each switch combination, merge Jun 1 - Aug 10 (data_hist runs jh_*) with Aug 10 - Oct 19
+# (v8_/v9_ runs on data/, data_recent/, data_mon/) into <out>/<mode>.json. Skipped markets (filters on) carry skip=1.
+# python3 -P scripts/build_btc_sheet.py <out_dir>
+import pandas as pd,json,sys,os,math
+OUT=sys.argv[1]; HM=["jun","jul","aug"]; sec=lambda s:int(s.split(":")[0])*60+int(s.split(":")[1])
+def clean(o):
+    if isinstance(o,float): return None if math.isnan(o) else round(o,4)
+    if isinstance(o,list): return [clean(x) for x in o]
+    if isinstance(o,dict): return {k:clean(v) for k,v in o.items()}
+    return o
+late=lambda p:[f"{p}_66d",f"{p}_recent",f"{p}_mon"]
+MODES={"mixed":("jh_off",late("v8_mixed")),"mixed_f":("jh_now",late("v8_mixed_f")),
+       "mixed_l3":("jh_l3off",late("v9_l3")),"mixed_l3_f":("jh_l3",late("v9_l3_f")),
+       "mixed_s25l3":("jh_s25l3off",late("v9_s25l3")),"mixed_s25l3_f":("jh_s25l3",late("v9_s25l3_f")),
+       "equal":("jh_eq",late("v8_equal")),"equal_f":("jh_eqf",late("v8_equal_f")),
+       "mixed5":("jh_m5",late("v8_mixed5")),"mixed5_f":("jh_m5f",late("v8_mixed5_f")),
+       "mixed_rec_f":("jh_j5",late("v9_j5"))}       # recommended: 25% + 0.03% stop, 0.5% jump pause, NFP/CPI/FOMC hour skipped
+ONLY=sys.argv[2].split(",") if len(sys.argv)>2 else None
+import datetime as _dt; from zoneinfo import ZoneInfo as _Z
+_C=pd.read_csv("data_news/calendar.csv"); _ET=_Z("America/New_York")
+NEWS={int(_dt.datetime.fromisoformat(f"{a}T{b}").replace(tzinfo=_ET).timestamp())+900*k for a,b,e in zip(_C.date,_C.time_et,_C.event) if e in ("jobs","cpi","fomc") for k in range(4)}
+for name,(h,lt) in MODES.items():
+    if ONLY and name not in ONLY: continue
+    files=[f"{h}_{m}" for m in HM]+lt
+    M=pd.concat([pd.read_csv(f"results/{f}_markets.csv") for f in files]).drop_duplicates("ticker",keep="last")
+    E=pd.concat([pd.read_csv(f"results/{f}_entries.csv") for f in files]).drop_duplicates(["ticker","entry_no"],keep="last")
+    sk=[f"results/{f}_skipped.csv" for f in files if os.path.exists(f"results/{f}_skipped.csv") and os.path.getsize(f"results/{f}_skipped.csv")>2]
+    if name.endswith("_f") and sk:
+        K=pd.concat([pd.read_csv(f) for f in sk]).drop_duplicates("ticker",keep="last"); K=K[~K.ticker.isin(M.ticker)]
+        K=K.assign(side="skipped: "+K.why,strike=None,result=None,entries=0,contracts=0,avg_buy=None,first_entry=None,stopped=0,sold995=0,settled=0,pnl=0.0,skip=1).drop(columns="why")
+        M=pd.concat([M.assign(skip=0),K],ignore_index=True)
+    else: M=M.assign(skip=0)
+    M["o"]=pd.to_datetime(M.day+" 2026 "+M.window_pt,format="%a %b %d %Y %I:%M %p"); M=M[M.o>="2026-06-01"].sort_values("o")
+    if name=="mixed_rec_f":                     # news hour: shown as skipped (would-be values come from mixed_s25l3)
+        nw=(M.o.dt.tz_localize("America/Los_Angeles").astype("int64")//10**9).isin(NEWS)&(M.skip==0)
+        M.loc[nw,["side","entries","contracts","stopped","sold995","settled","pnl","skip"]]=["skipped: NFP/CPI/FOMC hour",0,0,0,0,0,0.0,1]
+        M.loc[nw,["avg_buy","first_entry"]]=None
+    M=M.drop(columns="o")
+    E=E[E.ticker.isin(M.ticker)].copy()
+    M["d"]=pd.to_datetime(M.day+" 2026",format="%a %b %d %Y").dt.strftime("%Y-%m-%d"); E["side_s"]=E.side.str[0]
+    ent={k:g[["entry_no","entry_time","side_s","n","moneyness_pct","threshold_pct","buy","stop","exit","exit_time","exit_px","pnl"]].values.tolist() for k,g in E.groupby("ticker")}
+    caps={};held={};peak={}
+    for k,g in E.groupby("ticker"):
+        ev=sorted([(sec(a),n*b,n) for a,n,b in zip(g.entry_time,g.n,g.buy)]+[(sec(a),-n*b,-n) for a,n,b in zip(g.exit_time,g.n,g.buy)],key=lambda z:(z[0],z[1]))
+        run=mx=0.0; rn=pk=0
+        for _,c,q in ev: run+=c; mx=max(mx,run); rn+=q; pk=max(pk,rn)
+        caps[k]=round(mx,2); peak[k]=int(pk); held[k]=max(map(sec,g.exit_time))-min(map(sec,g.entry_time))
+    M["cap"]=M.ticker.map(caps).fillna(0); M["held_s"]=M.ticker.map(held).fillna(0); M["peak_n"]=M.ticker.map(peak).fillna(0).astype(int)
+    D=clean({"m":M.to_dict("records"),"e":ent}); body=json.dumps(D,separators=(",",":"),allow_nan=False)
+    if len(body)>15_000_000:                    # artifact per-file limit: entries go into <name>_e<i>.json parts
+        keys=sorted(ent); n=-(-len(body)//12_000_000); D["e"]={}; D["parts"]=n
+        for i in range(n):
+            json.dump({k:D_e for k,D_e in clean({k:ent[k] for k in keys[i::n]}).items()},open(f"{OUT}/{name}_e{i}.json","w"),separators=(",",":"),allow_nan=False)
+        body=json.dumps(D,separators=(",",":"),allow_nan=False)
+    open(f"{OUT}/{name}.json","w").write(body)
+    T=M[M.skip==0]; c=T.pnl.cumsum(); dd=(c-c.cummax()).min()
+    print(f"{name:14s} traded {len(T)}, skipped {int(M.skip.sum())}, total ${T.pnl.sum():+,.0f}, max DD ${dd:,.0f}, max peak held {T.peak_n.max():,}, MB {os.path.getsize(f'{OUT}/{name}.json')/1e6:.1f}")

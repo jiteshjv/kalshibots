@@ -1,0 +1,5 @@
+{"cursor": "abc", "trades": [
+ {"trade_id": "t3", "ticker": "KXBTC15M-26OCT191345-45", "count_fp": "10.00", "yes_price_dollars": "0.9300", "no_price_dollars": "0.0700",
+  "taker_side": "yes", "taker_outcome_side": "yes", "taker_book_side": "bid", "created_time": "2026-10-19T17:50:02.512Z", "is_block_trade": false},
+ {"trade_id": "t2", "ticker": "KXBTC15M-26OCT191345-45", "count_fp": "5.50", "yes_price_dollars": "0.9200", "no_price_dollars": "0.0800",
+  "taker_side": "no", "taker_outcome_side": "no", "taker_book_side": "ask", "created_time": "2026-10-19T17:50:01.100Z", "is_block_trade": false}]}

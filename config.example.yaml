@@ -1,0 +1,86 @@
+# kalshibot settings. Copy this file to config.yaml and edit it.
+#
+# Every setting is shown with its DEFAULT value. Any line you delete keeps its default, so a minimal config.yaml
+# can be just the `risk:` and `io:` parts you change. The defaults are the strategy exactly as it was backtested
+# (Aug 11 - Oct 19 2026); changing strategy settings means you are running something that was NOT tested.
+#
+# NEVER put secrets here. Your Kalshi key id and private key, the Telegram token and the dashboard token go in the
+# .env file (see docs/SETUP.md).
+#
+# Units: prices are in dollars (0.985 = 98.5 cents); "s" = seconds since the 15-minute market opened (0 to 899);
+# percentages are written as fractions (0.0015 = 0.15%).
+
+strategy:
+  series: KXBTC15M            # Kalshi series to trade: Bitcoin up/down every 15 minutes.
+
+  # --- which markets to trade at all
+  max_range_2h: 0.031         # Skip a market if BTC's (high - low) / average over the 2 hours before it opens is above 3.1%.
+  filters: true               # Liquidity-sweep filters (checked at the first entry of each market); true = skip risky markets.
+  sweep_days: 2.0             # Skip if in the last 5 minutes BTC ran through its 2-day high (for YES) or low (for NO).
+  sweep_4h_m60: 0.003879      # Skip if BTC swept its 4-hour high/low AND moved >= 0.3879% our way in the last hour.
+  sweep_lookback_s: 300       # "Last 5 minutes" for the sweep checks, in seconds.
+
+  # --- when to look for entries
+  first_check_s: 120          # First entry check at minute 2 of the market.
+  last_entry_s: 720           # No new entries after minute 12.
+  check_every_s: 10           # Check for an entry every 10 seconds.
+
+  # --- how far BTC must be from the strike (the "moneyness") to buy
+  mny_start: 0.0015           # At minute 2 BTC must be at least 0.15% above (YES) or below (NO) the strike ...
+  mny_floor: 0.0005           # ... and the requirement falls in a straight line to 0.05% ...
+  mny_end_s: 900              # ... by this second (the end of the market).
+
+  # --- price limits for buying
+  max_price: 0.985            # Only buy if the ask is below 98.5 cents.
+  max_spread: 0.03            # No entry if the gap between best bid and best ask is wider than 3 cents.
+  limit_offset: 0.005         # Entries are a bid 0.5 cents under the ask (cheaper fees) ...
+  limit_fallback: true        # ... and if that bid is not filled by the next check, buy at market instead.
+
+  # --- size
+  sizing: mixed               # "mixed" = size_early before early_until_s, size_late after; "equal" = size_late always.
+  size_early: 200             # Contracts per entry before minute 6.
+  size_late: 100              # Contracts per entry from minute 6.
+  early_until_s: 360          # Where "early" ends (minute 6).
+  max_held: 5000              # Most contracts held at once in one market. START SMALL in live mode: 1000-2000.
+
+  # --- exits
+  stop_pct: 0.30              # Each entry has its own stop: sell when its side trades 30% below what we paid ...
+  stop_lead: 0.0001           # ... AND BTC is within 0.01% of the strike on our side (both must be true).
+  take_profit: 0.997          # Keep a resting sell at 99.7 cents for everything held.
+  roll: true                  # After every entry was stopped out, the bot may enter the other side.
+  stop_recheck: false         # true = when a stop triggers, sell only if our side's bid is still at or below that entry's
+                              #        stop price (skips stops whose price already bounced back).
+  skip_hours_pt: ""           # skip whole markets starting in these Pacific hours, e.g. "7-9" (7:00-8:59 AM). "" = none.
+  jump_pause: 0.0             # >0 = no new entries while any clock minute in the last 15 moved more than this
+                              #      (fraction: 0.005 = a 0.5% one-minute move). 0 = off.
+
+risk:
+  mode: paper                 # "paper" = simulated fills, no money at risk. "live" = real orders with real money.
+  live_confirm: ""            # Live mode only starts if this is exactly: I UNDERSTAND THIS TRADES REAL MONEY
+  daily_loss_limit: 1500.0    # After losing this many dollars in a UTC day, open no new entries until 00:00 UTC
+                              # (5 PM Pacific in summer). Stops and take-profits still work. Lower it if you trade smaller.
+  max_open_orders: 60         # Safety cap on orders resting at Kalshi at once.
+  stale_btc_s: 3.0            # No new entries if the latest BTC price is older than 3 seconds.
+  stale_book_s: 3.0           # No new entries if the latest Kalshi order book is older than 3 seconds.
+  max_brti_vs_composite: 25.0 # Pause entries if Kalshi's BTC index and the exchange average disagree by more than $25.
+  kill_file: KILL             # KILL switch: if this file appears in the data folder, the bot cancels every order, SELLS
+                              # every open position at market (retrying each second until flat), then stops.
+  # --- news days (US data releases and Fed decisions). Default off; "window" is the one to use if you turn it on.
+  news_mode: "off"            # "off" | "window" (no new entries around each release) | "day" (none all day on those days)
+  news_events: jobs,cpi,fomc  # events to avoid: jobs (NFP), cpi, ppi, fomc, gdp_pce, retail, claims (every Thursday)
+  news_before_min: 15         # window mode: no new entries from 15 min before the release ...
+  news_after_min: 60          # ... until 60 min after it. Open positions are still managed (stops, 99.7c sell).
+  news_calendar: news_calendar.csv  # file in the data folder: date,event,time_et (New York time). Update it monthly.
+  news_windows: ""            # optional per-event windows "event:minutes_before:minutes_after", overriding the three
+                              # settings above, e.g. "jobs:15:60,cpi:15:60,claims:15:60,fomc:0:60" (used by the gold bot).
+  disarm_file: DISARM         # DISARM switch: no new entries or markets; open positions close normally (stops, 99.7c
+                              # sell, settlement), then the bot stops. With either file present the bot will not start.
+
+io:
+  data_dir: /data             # Where the journal, logs and dashboard data live. Keep /data when using Docker
+                              # (the default outside Docker is ~/kalshibot-data).
+  record: false               # Record every order-book change to disk (research use; uses a lot of disk). Leave off.
+  s3_bucket: ""               # Optional Amazon S3 bucket to upload recordings to (only with record: true).
+  telegram_token_env: TELEGRAM_BOT_TOKEN   # NAME of the environment variable holding your Telegram bot token.
+  telegram_chat_env: TELEGRAM_CHAT_ID      # NAME of the environment variable holding your Telegram chat id.
+  dashboard_port: 8787        # Port of the dashboard web page (only reachable from the server itself).

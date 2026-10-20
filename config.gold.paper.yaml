@@ -1,0 +1,26 @@
+# GOLD paper bot (KXGOLD15M), Version C + all gold filters, 2x gold size (= the gold sheet's default). Paper only.
+# Needs PYTH_API_KEY in the environment for live gold prices (Kalshi settles gold on Pyth); without it the bot trades nothing.
+strategy:
+  series: KXGOLD15M
+  max_range_2h: 0.012         # skip if gold's 2-hour range is above 1.2%
+  filters: true               # 2-day+ sweep filter ...
+  sweep_4h_m60: 1.0           # ... the BTC "4h sweep + stretched 1h" filter is off for gold
+  skip_hours_pt: "7-9"        # skip markets starting 7:00-8:59 AM PT
+  mny_start: 0.00132          # Version C: 0.132% at minute 2 ...
+  mny_floor: 0.00044          # ... to 0.044% by minute 15
+  size_early: 80              # 80 contracts per entry before minute 6, then 40, max 2,000 held (2x gold size)
+  size_late: 40
+  max_held: 2000
+  stop_pct: 0.20              # stop 20% below the buy price AND gold within 0.01% of the strike
+  stop_lead: 0.0001
+  take_profit: 0.999          # resting sell at 99.9c
+risk:
+  mode: paper
+  daily_loss_limit: 600.0
+  stale_btc_s: 6.0            # gold price older than 6 s -> no new entries
+  news_mode: window
+  news_windows: "jobs:15:60,cpi:15:60,claims:15:60,fomc:0:60"   # NFP/CPI/claims 5:15-6:30 AM PT, FOMC 11:00 AM-12:00 PM PT
+io:
+  data_dir: ~/kalshibot-gold-data
+  record: true
+  dashboard_port: 8788

@@ -99,6 +99,7 @@ class Strategy:
         self._lot_seq = 0
         self.no_entries = False                # disarmed: stops / TPs keep working, no new entries
         self.jump_blocks = 0                   # entry checks skipped by the sharp-move pause (for the dashboard)
+        self.stale_blocks = 0                  # entry checks skipped because the price feed was missing / stale
         self.best = None                       # (lead/needed, lead, needed, s) at the closest entry check (dashboard)
         self.price_blocks = 0                  # checks where the lead was enough but the ask was >= max_price
         self.spread_blocks = 0                 # ... or the spread was too wide
@@ -110,7 +111,7 @@ class Strategy:
         r = self.history.range_2h(m.open_ts)
         self.range2h = r
         if r is None or r != r:
-            self.skipped = "no 2h history"
+            self.skipped = "no price history"
         elif r > self.cfg.max_range_2h:
             self.skipped = "2h range"
         if not self.skipped and self.cfg.skip_hours_pt:
@@ -271,8 +272,10 @@ class Strategy:
                         L.exit, L.exit_px, L.exit_ts, L.fee_out = "stop", b, v.ts + 1, taker_fee(b, L.qty)
 
         # D. entries
-        check = (not self.no_entries and c.first_check_s <= s <= c.last_entry_s and s % c.check_every_s == 0
-                 and v.btc is not None and not v.btc.stale)
+        check = (not self.no_entries and c.first_check_s <= s <= c.last_entry_s and s % c.check_every_s == 0)
+        if check and (v.btc is None or v.btc.stale):
+            self.stale_blocks += 1
+            check = False
         if check and self.jumped(v.ts):
             self.jump_blocks += 1
             check = False

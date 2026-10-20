@@ -123,7 +123,9 @@ class App:
                 + ("" if self.s.strategy.first_check_s <= sec <= self.s.strategy.last_entry_s else " (no entries now)")}
 
     def meta(self) -> dict:
-        return {"mode": self.s.risk.mode, "state": self.state_name(), **self.live_line(), "series": self.s.strategy.series, "market": self.current.market.ticker if self.current else None,
+        err = getattr(self.btc, "last_error", "")
+        feed = {"price_feed": err} if err else {}
+        return {**feed, "mode": self.s.risk.mode, "state": self.state_name(), **self.live_line(), "series": self.s.strategy.series, "market": self.current.market.ticker if self.current else None,
                 "risk": self.risk.stats() if hasattr(self.risk, "stats") else {}, "updated": time.time()}
 
     def _sync_lots(self, run: MarketRun) -> None:
@@ -332,6 +334,8 @@ class App:
             reason = f"spread > {self.s.strategy.max_spread * 100:g}c"
         elif st.best:
             reason = "low moneyness"
+        elif st.stale_blocks:
+            reason = "no price"
         else:
             reason = "late start"
         self.journal.mark_market_skipped(run.market.ticker, reason)

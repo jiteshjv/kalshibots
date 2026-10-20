@@ -263,7 +263,7 @@ def test_range_filter_at_market_start():
     st, _ = make(arr=a)
     assert st.skipped is None
     st, _ = make(arr=np.full(4 * 86400, np.nan))
-    assert st.skipped == "no 2h history"
+    assert st.skipped == "no price history"
 
 
 def test_sweep_filter_skips_market_at_first_entry():

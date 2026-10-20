@@ -492,3 +492,7 @@ ops (journal, alerts, dashboard, recorder, Docker, docs/SETUP.md). Integration (
   re-check once. vs FV stop +$258.1K/DD -10.3K: 10c/2s +$252.6K -10.1K; 20c/2s +$255.9K -10.2K; 10c/5s +$252.8K -10.8K; 20c/5s +$256.4K
   -9.6K (t/DD 26.7 but only 11/21 weeks and 2/5 months better). Jun 15 4:15 PM market -2,954 -> -1,777, but real crashes keep falling
   more often than spikes snap back -> not adopted; keep selling immediately. (The "sold after the wait" counter printed 0: counter bug, ignore.)
+- Gold 2-day sweep lookback (2026-10-20, scripts/gold_sweep_trading.py): 48 calendar h (current; on Sun eve / Mon AM it only reaches back
+  to Sunday's open) vs 48 trading h. Trading hours skips 35 fewer markets (all Sun eve/Mon AM-ish) and those lost $1,050 (Version C:
+  +$32,350 -> +$31,300; A: +$44,100 -> +$42,724, DD worse). Breaking the range since Sunday's open is itself a bad sign -> keep calendar.
+  Gold bot startup history now counts trading hours (3 trading days), so the live check sees the same data as the backtest.

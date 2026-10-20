@@ -8,7 +8,7 @@ def clean(o):
     if isinstance(o,list): return [clean(x) for x in o]
     if isinstance(o,dict): return {k:clean(v) for k,v in o.items()}
     return o
-late=lambda p:[f"{p}_66d",f"{p}_recent",f"{p}_mon"]
+late=lambda p:[f"{p}_66d",f"{p}_recent"]+([f"{p}_oct20"] if os.path.exists(f"results/{p}_oct20_markets.csv") else [])+[f"{p}_mon"]   # mon last: it wins on the overlap
 MODES={"mixed":("jh_off",late("v8_mixed")),"mixed_f":("jh_now",late("v8_mixed_f")),
        "mixed_l3":("jh_l3off",late("v9_l3")),"mixed_l3_f":("jh_l3",late("v9_l3_f")),
        "mixed_s25l3":("jh_s25l3off",late("v9_s25l3")),"mixed_s25l3_f":("jh_s25l3",late("v9_s25l3_f")),

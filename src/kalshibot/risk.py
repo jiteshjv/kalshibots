@@ -93,6 +93,10 @@ class RiskGuard:
         return self.data_dir / p
 
     # -------------------------------------------------------------------------------------------------- news days
+    def calendar_path(self) -> Path:
+        p = Path(os.path.expanduser(self.cfg.news_calendar))
+        return p if p.is_absolute() or self.data_dir is None else self.data_dir / p
+
     def _calendar(self) -> list[tuple[float, str]]:
         """(release unix ts, event) from the news calendar file; re-read when the file changes. Missing file -> []."""
         p = Path(os.path.expanduser(self.cfg.news_calendar))
@@ -117,17 +121,46 @@ class RiskGuard:
             self._cal, self._cal_mtime = rows, mt
         return self._cal
 
-    def news_block(self, now: float) -> str:
-        """'' or the reason entries are blocked by the news-day setting (risk.news_mode)."""
+    def _news_spec(self) -> tuple[set, dict]:
         c = self.cfg
-        if c.news_mode == "off":
-            return ""
         wins = {}
         for part in (getattr(c, "news_windows", "") or "").split(","):
             bits = part.strip().split(":")
             if len(bits) == 3:
                 wins[bits[0]] = (int(bits[1]), int(bits[2]))
         want = set(wins) if wins else {e.strip() for e in c.news_events.split(",") if e.strip()}
+        return want, wins
+
+    def upcoming_news(self, now: float, days: float = 21) -> list[tuple[float, float, str]]:
+        """(start, end, event) of the news no-entry windows from now to `days` ahead (window mode), or whole PT days
+        (day mode). Windows already over are left out."""
+        c = self.cfg
+        if c.news_mode == "off":
+            return []
+        want, wins = self._news_spec()
+        import datetime as _dt
+        from zoneinfo import ZoneInfo
+        pt = ZoneInfo("America/Los_Angeles")
+        out = []
+        for ts, ev in self._calendar():
+            if ev not in want or ts > now + days * 86400:
+                continue
+            if c.news_mode == "day":
+                d0 = _dt.datetime.fromtimestamp(ts, pt).replace(hour=0, minute=0, second=0, microsecond=0)
+                a, b = d0.timestamp(), (d0 + _dt.timedelta(days=1)).timestamp()
+            else:
+                before, after = wins.get(ev, (c.news_before_min, c.news_after_min))
+                a, b = ts - 60 * before, ts + 60 * after
+            if b >= now:
+                out.append((a, b, ev))
+        return sorted(out)
+
+    def news_block(self, now: float) -> str:
+        """'' or the reason entries are blocked by the news-day setting (risk.news_mode)."""
+        c = self.cfg
+        if c.news_mode == "off":
+            return ""
+        want, wins = self._news_spec()
         import datetime as _dt
         from zoneinfo import ZoneInfo
         pt = ZoneInfo("America/Los_Angeles")

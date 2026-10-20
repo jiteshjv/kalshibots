@@ -83,6 +83,14 @@ select:focus-visible,input[type=date]:focus-visible{outline:2px solid var(--acce
 .empty-msg{padding:24px;text-align:center;color:var(--muted)}
 .ev td{font-size:12px}.ev td.msg{white-space:normal;text-align:left;font-family:var(--sans)}
 .lv-error{color:var(--loss)}.lv-warn{color:var(--warn)}
+.sets{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px 16px;padding:12px 14px}
+.sets label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+.sets input[type=number],.sets input[type=text],.sets select{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--fg)}
+.sets input:focus-visible,.sets select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sets .ov{color:var(--warn);font-weight:600}.sets .hl{font-size:11px;color:var(--muted)}
+details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-marker{display:none}
+.savebar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:0 14px 12px}
+.savebtn{font:inherit;font-size:13px;font-weight:600;padding:6px 14px;border:1px solid var(--accent);border-radius:5px;background:var(--accent);color:var(--bg);cursor:pointer}
 </style>
 </head>
 <body>
@@ -134,6 +142,19 @@ select:focus-visible,input[type=date]:focus-visible{outline:2px solid var(--acce
     </div>
     <div class="box"><table id="mk"></table></div>
   </div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <h2>No-trade times ahead</h2>
+    <p id="schednote" style="font-size:12px"></p>
+    <div class="box"><table id="sched"></table></div>
+  </div>
+  <details id="setbox" style="display:flex;flex-direction:column;gap:8px">
+    <summary><h2 style="display:inline">Settings ▸</h2> <span class="mut" style="font-size:12px">size, entry timing, moneyness steps, stops, filters, news windows</span></summary>
+    <div class="box" style="margin-top:8px">
+      <p id="setnote" style="font-size:12px;padding:12px 14px 0"></p>
+      <form id="setform" class="sets" onsubmit="return false"></form>
+      <div class="savebar"><button type="button" class="savebtn" id="setsave">Save settings</button><span id="setmsg" class="mut" style="font-size:12px"></span></div>
+    </div>
+  </details>
   <div style="display:flex;flex-direction:column;gap:8px">
     <h2>Recent events</h2>
     <div class="box"><table id="ev" class="ev"></table></div>
@@ -281,7 +302,7 @@ let HEALTH=null;
 async function load(){
  let d;try{d=await (await fetch("dashboard.json",{cache:"no-store"})).json();}catch(e){$("#status").innerHTML=`<span class="badge b-bad">cannot reach the bot</span> <span class="mut">retrying in 30 s</span>`;return;}
  try{HEALTH=await (await fetch("health",{cache:"no-store"})).json();}catch(e){HEALTH=null;}
- ALL=d.m||[];E=d.e||{};META=d.meta||{};EV=d.ev||[];status();
+ ALL=d.m||[];E=d.e||{};META=d.meta||{};EV=d.ev||[];status();sched();
  if(!ALL.length){["#d0","#d1"].forEach(s=>{$(s).value="";});apply();return;}
  const ds=ALL.map(r=>r.d);const lo=ds.reduce((a,b)=>a<b?a:b),hi=ds.reduce((a,b)=>a>b?a:b);
  const wasFull=$("#d0").dataset.init?($("#d1").value===$("#d1").max):null;
@@ -332,6 +353,46 @@ async function sw(name,question,done){
 $("#kill").addEventListener("click",()=>sw("kill","KILL: the bot cancels every order and SELLS EVERY OPEN POSITION AT MARKET now, then stays idle until you press Rearm.\n\nAfterwards, check your positions on kalshi.com.\n\nContinue?","Kill switch on. The bot is selling everything, then goes idle."));
 $("#rearm").addEventListener("click",()=>sw("rearm","REARM: the bot starts trading again from the next 15-minute market, with the settings in its config.\n\nContinue?","Re-armed. Trading resumes from the next market."));
 $("#disarm").addEventListener("click",()=>sw("disarm","DISARM: no new entries and no new markets. Open positions in the current market are still managed (stops, 99.7c sell, settlement); then the bot stays idle until you press Rearm.\n\nContinue?","Disarming. The bot finishes its open positions, then goes idle."));
+function sched(){
+ const S=(META&&META.schedule)||{};const up=S.upcoming||[];
+ let note=S.news_mode==="off"?"News windows are off in Settings.":"New entries are paused in these windows (open positions are still managed).";
+ if(S.recurring&&S.recurring.length)note+=" Also skipped: "+S.recurring.join("; ")+".";
+ if(S.calendar_checked)note+=` Calendar checked ${S.calendar_checked} PT`+(S.calendar_sources?` (${Object.entries(S.calendar_sources).map(([k,v])=>k+": "+v).join(", ")})`:"")+".";
+ $("#schednote").textContent=note;
+ $("#sched").innerHTML=`<tr><th class="l">When (PT)</th><th class="l">Until</th><th class="l">Release</th></tr>`+(up.length?up.map(r=>`<tr><td class="l">${esc(r.start)}${r.now?' <span class="tag t-stop">now</span>':''}</td><td class="l">${esc(r.end)}</td><td class="l">${esc(r.what)}</td></tr>`).join(""):`<tr><td class="l mut" colspan="3">none in the next 3 weeks</td></tr>`);
+}
+let SET=null;
+async function loadSettings(){
+ try{SET=await (await fetch("settings.json",{cache:"no-store"})).json();}catch(e){$("#setnote").textContent="Settings need the running bot.";return;}
+ if(!SET.ok){$("#setnote").textContent=SET.error||"Settings unavailable.";return;}
+ $("#setnote").textContent=`${SET.series} · ${SET.mode.toUpperCase()} mode. ${SET.note} Orange = changed here (overrides config.yaml).`;
+ const ov=new Set(SET.overridden||[]);
+ $("#setform").innerHTML=SET.fields.map(f=>{const v=SET.values[f.key],k=f.type.split(":")[0],id="s_"+f.key.replace(".","_");
+  const unit=k==="pct"?" (%)":k==="cents"?" (¢)":"";const lab=`<span class="${ov.has(f.key)?'ov':''}">${esc(f.label)}${f.label.match(/\(.*\)$/)?'':unit}</span>`;
+  let inp;
+  if(k==="bool")inp=`<select id="${id}" data-k="${f.key}"><option value="true"${v?" selected":""}>on</option><option value="false"${!v?" selected":""}>off</option></select>`;
+  else if(k==="choice")inp=`<select id="${id}" data-k="${f.key}">${f.type.split(":")[1].split(",").map(o=>`<option${o===v?" selected":""}>${o}</option>`).join("")}</select>`;
+  else if(k==="str")inp=`<input type="text" id="${id}" data-k="${f.key}" value="${esc(v)}">`;
+  else inp=`<input type="number" step="any" id="${id}" data-k="${f.key}" value="${esc(v)}"${f.min!=null?` min="${f.min}"`:""}${f.max!=null?` max="${f.max}"`:""}>`;
+  return `<label for="${id}">${lab}${inp}${f.help?`<span class="hl">${esc(f.help)}</span>`:""}${ov.has(f.key)?`<button type="button" class="lnk" data-reset="${f.key}" style="align-self:start;padding:2px 6px">reset to config</button>`:""}</label>`;}).join("");
+}
+async function saveSettings(body){
+ const tok=prompt("Dashboard token (the KALSHIBOT_DASH_TOKEN value from your .env file):");if(!tok)return;
+ try{const r=await fetch("settings",{method:"POST",headers:{"Authorization":"Bearer "+tok,"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));$("#setmsg").textContent=r.ok?j.message:"Not saved: "+((j.errors||[]).join("; ")||j.error||("HTTP "+r.status));}
+ catch(e){$("#setmsg").textContent="Could not reach the bot.";}
+ loadSettings();
+}
+$("#setsave").addEventListener("click",()=>{if(!SET)return;const ch={};
+ document.querySelectorAll("#setform [data-k]").forEach(el=>{const k=el.dataset.k,old=SET.values[k];let v=el.value;
+  const t=(SET.fields.find(f=>f.key===k)||{}).type||"";
+  if(t==="bool")v=v==="true";else if(!["str"].includes(t.split(":")[0])&&!t.startsWith("choice"))v=v===""?null:Number(v);
+  if(v!==null&&String(v)!==String(old))ch[k]=v;});
+ if(!Object.keys(ch).length){$("#setmsg").textContent="No changes.";return;}
+ if(!confirm("Save these settings?\n\n"+Object.entries(ch).map(([k,v])=>k+" = "+v).join("\n")+"\n\nStrategy changes apply from the next market."))return;
+ saveSettings(ch);});
+$("#setform").addEventListener("click",e=>{const b=e.target.closest("[data-reset]");if(!b)return;if(confirm("Reset "+b.dataset.reset+" to the value in config.yaml?"))saveSettings({[b.dataset.reset]:null});});
+$("#setbox").addEventListener("toggle",()=>{if($("#setbox").open&&!SET)loadSettings();});
 load();setInterval(load,30000);
 </script>
 </body>

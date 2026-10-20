@@ -26,7 +26,9 @@ import logging
 import signal
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+
+from zoneinfo import ZoneInfo
 
 from kalshibot.alerts import Alerter, write_heartbeat
 from kalshibot.config import Settings, kalshi_credentials
@@ -61,6 +63,9 @@ class App:
     def __init__(self, settings: Settings):
         self.s = settings
         self.data = settings.data_path
+        from kalshibot import settings_store
+        self._overrides = settings_store.load(self.data)       # dashboard Settings page (settings.json) over config.yaml
+        applied = settings_store.apply(self.s, self._overrides)
         self.journal = Journal(self.data)
         self.alerts = Alerter.from_env(settings.io.telegram_token_env, settings.io.telegram_chat_env)
         key_id, key_path = kalshi_credentials()
@@ -88,6 +93,10 @@ class App:
                                       export=lambda p: self.journal.export_dashboard_json(p, meta=self.meta()))
         self.server.on_kill = lambda: self.alerts.kill_switch("dashboard")
         self.server.on_rearm = self.rearm
+        self.server.on_get_settings = self.settings_view
+        self.server.on_set_settings = self.update_settings
+        if applied:
+            log.info("dashboard settings applied over config.yaml: %s", ", ".join(applied))
         self.recorder = None
         if settings.io.record:
             from kalshibot.recorder import Recorder
@@ -129,7 +138,7 @@ class App:
     def meta(self) -> dict:
         err = getattr(self.btc, "last_error", "")
         feed = {"price_feed": err} if err else {}
-        return {**feed, "mode": self.s.risk.mode, "state": self.state_name(), **self.live_line(), "series": self.s.strategy.series, "market": self.current.market.ticker if self.current else None,
+        return {**feed, "mode": self.s.risk.mode, "state": self.state_name(), **self.live_line(), "schedule": self.schedule(), "series": self.s.strategy.series, "market": self.current.market.ticker if self.current else None,
                 "risk": self.risk.stats() if hasattr(self.risk, "stats") else {}, "updated": time.time()}
 
     def _sync_lots(self, run: MarketRun) -> None:
@@ -192,7 +201,7 @@ class App:
             if m is not None and m.ticker in self.runs and not self.runs[m.ticker].settled:
                 self.current = self.runs[m.ticker]
             return
-        st = Strategy(self.s.strategy, self.history, id_prefix=f"kb{int(now) % 100000}")
+        st = Strategy(replace(self.s.strategy), self.history, id_prefix=f"kb{int(now) % 100000}")   # copy: settings saved later apply from the next market
         st.start_market(m)
         if st.skipped == "no price history" and self._feed_down():
             st.skipped = "no price feed"
@@ -366,6 +375,59 @@ class App:
                 self.journal.record_market_close(t, res == "yes")
                 log.info("settled %s %s from the journal (%d open entries settled)", t, res, n)
 
+    # ---------------------------------------------------------------- dashboard settings / schedule
+    def settings_view(self) -> dict:
+        from kalshibot import settings_store
+        return {"ok": True, "values": settings_store.to_display(self.s), "fields": settings_store.spec_json(),
+                "overridden": sorted(self._overrides), "mode": self.s.risk.mode, "series": self.s.strategy.series,
+                "note": "Strategy settings apply from the next market; risk settings apply at once. "
+                        "Paper/live mode is changed only in config.yaml."}
+
+    def update_settings(self, raw: dict) -> tuple[bool, str, list]:
+        from kalshibot import settings_store
+        reset = [k for k, v in raw.items() if v is None]           # null = back to config.yaml's value
+        clean, errs = settings_store.validate({k: v for k, v in raw.items() if v is not None})
+        if errs:
+            return False, "nothing saved", errs
+        base = Settings.load(getattr(self.s, "_path", None)) if getattr(self.s, "_path", None) else None
+        for k in reset:
+            self._overrides.pop(k, None)
+            if base is not None:
+                sec, _, name = k.partition(".")
+                setattr(getattr(self.s, sec), name, getattr(getattr(base, sec), name))
+        self._overrides.update(clean)
+        settings_store.save(self.data, self._overrides)
+        settings_store.apply(self.s, clean)
+        msg = ", ".join(f"{k}={v}" for k, v in clean.items()) or "no changes"
+        self.journal.event("warn", "settings", f"dashboard settings saved: {msg}" + (f"; reset {', '.join(reset)}" if reset else ""))
+        log.info("dashboard settings saved: %s", msg)
+        nxt = ""
+        if self.current is not None:
+            nxt = dt.datetime.fromtimestamp(self.current.market.close_ts, ZoneInfo("America/Los_Angeles")).strftime("%-I:%M %p PT")
+        return True, f"saved. Strategy changes apply from the next market{(' (' + nxt + ')') if nxt else ''}.", []
+
+    def schedule(self, days: float = 21) -> dict:
+        """Upcoming no-entry windows (news calendar) and the recurring skipped hours, for the dashboard."""
+        pt = ZoneInfo("America/Los_Angeles")
+        now = time.time()
+        f = lambda t: dt.datetime.fromtimestamp(t, pt).strftime("%a %b %-d %-I:%M %p")
+        names = {"jobs": "NFP jobs report", "cpi": "CPI", "ppi": "PPI", "fomc": "FOMC decision", "claims": "jobless claims",
+                 "gdp_pce": "GDP / PCE", "retail": "retail sales"}
+        up = [{"start": f(a), "end": dt.datetime.fromtimestamp(b, pt).strftime("%-I:%M %p"), "what": names.get(e, e),
+               "now": a <= now <= b} for a, b, e in self.risk.upcoming_news(now, days)]
+        rec = []
+        if self.s.strategy.skip_hours_pt:
+            rec.append(f"every day, markets starting {self.s.strategy.skip_hours_pt} PT")
+        cal = getattr(self, "_cal_info", None) or {}
+        return {"upcoming": up, "recurring": rec, "news_mode": self.s.risk.news_mode,
+                "calendar_checked": f(cal["updated"]) if cal.get("updated") else None,
+                "calendar_sources": cal.get("sources")}
+
+    async def _update_calendar(self) -> None:
+        from kalshibot import newscal
+        p = self.risk.calendar_path() if hasattr(self.risk, "calendar_path") else self.data / self.s.risk.news_calendar
+        self._cal_info = await asyncio.to_thread(newscal.update, p)
+
     def _hist_path(self):
         return self.data / "history_bars.npz"
 
@@ -386,6 +448,10 @@ class App:
             if today != self.last_day:
                 self.alerts.daily_summary(self.journal.daily_summary(self.last_day))
                 self.last_day = today
+                try:
+                    await self._update_calendar()
+                except Exception as e:
+                    log.warning("news calendar update: %s", e)
             if hasattr(self.broker, "poll_fills"):
                 try:
                     await self.broker.poll_fills()
@@ -511,6 +577,10 @@ class App:
                  0 if last is None else len(self.history._bars) - n, n, gap_days)
         self.server.start()
         self.alerts.started(mode)
+        try:
+            await self._update_calendar()
+        except Exception as e:                               # calendar download is best effort
+            log.warning("news calendar update: %s", e)
         tasks = [asyncio.create_task(self.btc.run()), asyncio.create_task(self.feed.run()),
                  asyncio.create_task(self._settle_loop()), asyncio.create_task(self._housekeeping())]
         try:

@@ -101,6 +101,7 @@ class Settings:
                     if k not in names:
                         raise ValueError(f"unknown setting {sect}.{k}")
                     setattr(obj, k, type(getattr(obj, k))(v))
+        s._path = str(path) if path else None        # remembered so the dashboard can reset a setting to config.yaml
         return s
 
     def to_dict(self) -> dict:

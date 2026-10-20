@@ -9,6 +9,8 @@
                            If the env var is unset the endpoint answers 403 (disabled).
     POST /disarm           same, creates `<data_dir>/<disarm_file>` (no new entries; positions close normally, then idle)
     POST /rearm            same token; asks the app (on_rearm) to delete the switch files and trade again (only when idle)
+    GET  /settings.json    the changeable settings (current values, limits, labels) - needs the running bot
+    POST /settings         same token; JSON body {"strategy.size_late": 10, ...}; saved to <data_dir>/settings.json
 
 Binds 127.0.0.1 by default (read it from your own computer over an SSH tunnel). Inside Docker set
 KALSHIBOT_DASH_HOST=0.0.0.0 and publish the port as "127.0.0.1:8787:8787" so it is still only reachable from the
@@ -55,6 +57,8 @@ class DashboardServer:
         self._thread: threading.Thread | None = None
         self.on_rearm: Callable[[], tuple[bool, str]] | None = None   # app.rearm
         self.on_kill: Callable[[], None] | None = None  # optional callback (e.g. alert) after the kill file is made
+        self.on_get_settings: Callable[[], dict] | None = None              # app.settings_view
+        self.on_set_settings: Callable[[dict], tuple[bool, str, list]] | None = None   # app.update_settings
 
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> int:
@@ -145,15 +149,18 @@ def _make_handler(srv: DashboardServer):
                 self._send(200, srv.dashboard_bytes())
             elif path == "/health":
                 self._json(200, srv.health())
+            elif path == "/settings.json":
+                if srv.on_get_settings is None:
+                    return self._json(409, {"ok": False, "error": "settings need the running bot"})
+                self._json(200, srv.on_get_settings())
             else:
                 self._send(404, b"not found", "text/plain")
 
         def do_POST(self):  # noqa: N802
             path = self.path.split("?", 1)[0]
             n = int(self.headers.get("Content-Length") or 0)
-            if n:
-                self.rfile.read(min(n, 65536))
-            if path not in ("/kill", "/disarm", "/rearm"):
+            body = self.rfile.read(min(n, 65536)) if n else b""
+            if path not in ("/kill", "/disarm", "/rearm", "/settings"):
                 return self._send(404, b"not found", "text/plain")
             if not srv._token:
                 return self._json(403, {"ok": False, "error": f"kill endpoint disabled: set {TOKEN_ENV}"})
@@ -162,6 +169,15 @@ def _make_handler(srv: DashboardServer):
             if not srv.check_token(given):
                 time.sleep(0.5)  # slow down guessing
                 return self._json(401, {"ok": False, "error": "bad token"})
+            if path == "/settings":
+                if srv.on_set_settings is None:
+                    return self._json(409, {"ok": False, "error": "settings need the running bot"})
+                try:
+                    raw = json.loads(body or b"{}")
+                except ValueError:
+                    return self._json(400, {"ok": False, "error": "body must be JSON"})
+                ok, msg, errs = srv.on_set_settings(raw if isinstance(raw, dict) else {})
+                return self._json(200 if ok else 400, {"ok": ok, "message": msg, "errors": errs})
             if path == "/rearm":
                 if srv.on_rearm is None:
                     return self._json(409, {"ok": False, "error": "rearm needs the running bot"})

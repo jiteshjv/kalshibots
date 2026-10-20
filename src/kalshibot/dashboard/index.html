@@ -101,6 +101,7 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
       <div class="status" id="status"><span class="mut">Loading…</span></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="killbtn" id="gosettings" style="border-color:var(--accent);color:var(--accent)" title="Size, entry timing, moneyness steps, stops, filters, news windows">Settings</button>
       <button type="button" class="killbtn" id="rearm" style="border-color:var(--gain);color:var(--gain)" title="Trade again from the next market (only once the bot is idle)">Rearm</button>
       <button type="button" class="killbtn" id="disarm" title="No new entries; let open positions close normally, then stop">Disarm</button>
       <button type="button" class="killbtn" id="kill" title="Sell every position at market now, then stop">Kill</button>
@@ -392,6 +393,7 @@ $("#setsave").addEventListener("click",()=>{if(!SET)return;const ch={};
  if(!confirm("Save these settings?\n\n"+Object.entries(ch).map(([k,v])=>k+" = "+v).join("\n")+"\n\nStrategy changes apply from the next market."))return;
  saveSettings(ch);});
 $("#setform").addEventListener("click",e=>{const b=e.target.closest("[data-reset]");if(!b)return;if(confirm("Reset "+b.dataset.reset+" to the value in config.yaml?"))saveSettings({[b.dataset.reset]:null});});
+$("#gosettings").addEventListener("click",()=>{const b=$("#setbox");b.open=true;if(!SET)loadSettings();b.scrollIntoView({behavior:"smooth",block:"start"});});
 $("#setbox").addEventListener("toggle",()=>{if($("#setbox").open&&!SET)loadSettings();});
 load();setInterval(load,30000);
 </script>

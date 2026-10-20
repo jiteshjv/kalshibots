@@ -190,6 +190,8 @@ class App:
             return
         st = Strategy(self.s.strategy, self.history, id_prefix=f"kb{int(now) % 100000}")
         st.start_market(m)
+        if st.skipped in ("no price history",) and self._no_key():
+            st.skipped = "no Pyth key"
         run = MarketRun(m, st)
         self.runs[m.ticker] = run
         self.current = run
@@ -335,10 +337,14 @@ class App:
         elif st.best:
             reason = "low moneyness"
         elif st.stale_blocks:
-            reason = "no price"
+            reason = "no Pyth key" if self._no_key() else "no price"
         else:
             reason = "late start"
         self.journal.mark_market_skipped(run.market.ticker, reason)
+
+    def _no_key(self) -> bool:
+        """The gold feed has no API key, so there is no price at all (label skips with the cause, not a symptom)."""
+        return "PYTH_API_KEY" in (getattr(self.btc, "last_error", "") or "")
 
     @staticmethod
     def _selling(run: MarketRun) -> bool:

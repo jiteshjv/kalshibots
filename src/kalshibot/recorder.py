@@ -1,8 +1,8 @@
 """Research recorder: every book snapshot/delta, Kalshi trade and BtcTick as gzipped JSON lines.
 
-Files: `<data_dir>/rec/YYYY-MM-DD/HH.jsonl.gz` (UTC hour of the record's wall-clock time). One line per record:
+Files: `<data_dir>/rec/YYYY-MM-DD/HH.jsonl.gz` (Pacific-time date and hour of the record's wall-clock time). One line per record:
     {"ts": 1760900000.123, "kind": "book_delta", "d": {...payload...}}
-* Rotates at the top of every UTC hour (the finished file is closed, so it is a complete gzip).
+* Rotates at the top of every hour (the finished file is closed, so it is a complete gzip).
 * Flushes (zlib sync flush) every `flush_every_s` seconds, so after a crash everything up to the last flush can be
   read back with `zcat` or `read_records()`. If an hour file already exists when a new Recorder starts (restart
   within the same hour), it writes `HH.1.jsonl.gz`, `HH.2...` instead of appending to a possibly-truncated stream.
@@ -29,6 +29,8 @@ from typing import Any, Callable, Iterator
 
 log = logging.getLogger("kalshibot.recorder")
 UTC = _dt.timezone.utc
+from zoneinfo import ZoneInfo as _ZI
+PT = _ZI("America/Los_Angeles")                 # recordings: rec/<PT date>/<PT hour>.jsonl.gz
 
 
 class Recorder:
@@ -61,7 +63,7 @@ class Recorder:
         line = json.dumps({"ts": now if ts is None else ts, "kind": kind, "d": payload},
                           separators=(",", ":"), default=_default) + "\n"
         with self._lock:
-            key = _dt.datetime.fromtimestamp(now, UTC).strftime("%Y-%m-%d/%H")
+            key = _dt.datetime.fromtimestamp(now, PT).strftime("%Y-%m-%d/%H")    # folder per PT date, file per PT hour
             if key != self._hour_key:
                 self._rotate(key)
             assert self._gz is not None

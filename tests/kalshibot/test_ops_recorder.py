@@ -4,7 +4,8 @@ import json
 
 from kalshibot.recorder import Recorder, read_records
 
-T0 = dt.datetime(2026, 10, 19, 13, 59, 58, tzinfo=dt.timezone.utc).timestamp()
+from zoneinfo import ZoneInfo
+T0 = dt.datetime(2026, 10, 19, 13, 59, 58, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()   # folders are PT
 
 
 class Clock:

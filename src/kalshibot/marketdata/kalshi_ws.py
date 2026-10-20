@@ -450,17 +450,19 @@ class KalshiWs:
 # ----------------------------------------------------------------------------------------------------------------
 
 class PollingFeed:
-    """Polls REST once per `interval` per ticker: the full book and new trades. 2 read requests/ticker/s.
+    """Polls REST per ticker: the full book every `book_interval` (default = `interval`) and new trades every `interval`.
+    1/book_interval + 1/interval read requests/ticker/s (0.2 s book + 1 s trades = 6/s).
 
     Book.ts = when the REST response arrived. Trades are de-duplicated by trade id; because the trades list is read
     once per second, the newest second's tape can be incomplete when a view is built right at the boundary."""
 
     def __init__(self, rest: KalshiRest, tickers: Iterable[str] = (), *, interval: float = 1.0,
-                 on_book: Callable | None = None, on_trade: Callable | None = None,
+                 book_interval: float | None = None, on_book: Callable | None = None, on_trade: Callable | None = None,
                  clock: Callable[[], float] = time.time, trade_lookback_s: float = 30.0):
         self.rest = rest
         self.tickers: list[str] = list(dict.fromkeys(tickers))
         self.interval = interval
+        self.book_interval = book_interval or interval
         self.on_book, self.on_trade = on_book, on_trade
         self.clock = clock
         self.lookback = trade_lookback_s
@@ -515,10 +517,22 @@ class PollingFeed:
                 await _call(self.on_trade, tk, t)
 
     async def run(self) -> None:
+        if self.book_interval >= self.interval:
+            await self._loop(self.interval, self.poll_once)
+            return
+        async def books():
+            for tk in list(self.tickers):
+                await self._poll_book(tk)
+        async def trades():
+            for tk in list(self.tickers):
+                await self._poll_trades(tk)
+        await asyncio.gather(self._loop(self.book_interval, books), self._loop(self.interval, trades))
+
+    async def _loop(self, every: float, fn) -> None:
         nxt = time.time()
         while not self._stop:
-            await self.poll_once()
-            nxt += self.interval
+            await fn()
+            nxt += every
             await asyncio.sleep(max(0.0, nxt - time.time()))
-            if nxt < time.time() - 5 * self.interval:
+            if nxt < time.time() - 5 * every:
                 nxt = time.time()

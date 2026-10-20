@@ -15,3 +15,4 @@ risk:
 io:
   data_dir: ~/kalshibot-data
   record: true
+  book_poll_s: 0.2           # book every 200 ms (5/s) - see the fast in-and-out orders around moves

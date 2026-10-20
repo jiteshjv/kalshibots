@@ -71,7 +71,9 @@ class App:
             self.btc = GoldFeed(self.history, rest=self.rest, data_dir=self.data)
         else:
             self.btc = BtcFeed(rest=self.rest if self.rest.has_key else None, history=self.history)
-        self.feed = KalshiWs(self.rest) if self.rest.has_key else PollingFeed(self.rest)
+        self.feed = (KalshiWs(self.rest, on_book=self._rec_book) if self.rest.has_key
+                     else PollingFeed(self.rest, book_interval=settings.io.book_poll_s, on_book=self._rec_book))
+        self._rec_last: dict[str, float] = {}
         self.views = ViewBuilder(self.feed, self.btc)
         if settings.risk.mode == "live":
             from kalshibot.execution.live import LiveBroker      # refuses unless the confirm phrase matches
@@ -216,7 +218,6 @@ class App:
         if view.s < 0 or view.s > 899:
             return
         if self.recorder and view.book is not None:
-            self.recorder.write("book", {"t": m.ticker, "s": view.s, "y": view.book.yes_bids[:10], "n": view.book.no_bids[:10]})
             for tr in view.trades:
                 self.recorder.write("trade", {"t": m.ticker, "ts": tr.ts, "side": tr.taker_side, "p": tr.price, "q": tr.qty})
         self.broker.on_second(view, m.ticker)
@@ -341,6 +342,18 @@ class App:
         else:
             reason = "late start"
         self.journal.mark_market_skipped(run.market.ticker, reason)
+
+    def _rec_book(self, tk: str, b) -> None:
+        """Record every book update (REST poll or websocket), at most one per 0.1 s per ticker."""
+        if self.recorder is None:
+            return
+        now = time.time()
+        if now - self._rec_last.get(tk, 0.0) < 0.1:
+            return
+        self._rec_last[tk] = now
+        run = self.runs.get(tk)
+        s = int(now - run.market.open_ts) if run else None
+        self.recorder.write("book", {"t": tk, "s": s, "y": b.yes_bids[:10], "n": b.no_bids[:10]})
 
     def _feed_down(self) -> bool:
         """The price feed reports an error (label skips with the cause, not the symptom)."""

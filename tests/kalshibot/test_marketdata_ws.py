@@ -248,3 +248,18 @@ def test_polling_feed_dedups_and_books():
     b = pf.book(TK)
     assert b.ts == 103.0 and b.best_bid("y") == 0.91
     assert len(pf.trades(TK, 101, 102)) == 1
+
+
+def test_polling_feed_polls_book_faster_than_trades():
+    rest = FakeRest(trades=[])
+    books = []
+    pf = PollingFeed(rest, [TK], interval=0.2, book_interval=0.04, on_book=lambda tk, b: books.append(b))
+
+    async def go():
+        t = asyncio.create_task(pf.run())
+        await asyncio.sleep(0.39)
+        pf.stop()
+        await asyncio.sleep(0.25)
+        t.cancel()
+    run(go())
+    assert len(books) >= 7 and 1 <= len(rest.trade_calls) <= 3      # ~10 books vs ~2 trade polls

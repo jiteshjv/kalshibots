@@ -68,6 +68,7 @@ class RiskCfg:
 class IoCfg:
     data_dir: str = "~/kalshibot-data"   # journal, logs, state, recordings
     record: bool = False                 # full order-book recorder (research machine only)
+    book_poll_s: float = 1.0             # no-key REST book polling interval (0.2 = 5 books/s); trades stay at 1 s
     s3_bucket: str = ""                  # optional: upload recordings here
     telegram_token_env: str = "TELEGRAM_BOT_TOKEN"
     telegram_chat_env: str = "TELEGRAM_CHAT_ID"

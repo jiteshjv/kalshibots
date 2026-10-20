@@ -79,6 +79,7 @@ risk:
 io:
   data_dir: /data             # Where the journal, logs and dashboard data live. Keep /data when using Docker
                               # (the default outside Docker is ~/kalshibot-data).
+  book_poll_s: 1.0            # Without a Kalshi key: read the order book every this many seconds (0.2 = 5 times a second).
   record: false               # Record every order-book change to disk (research use; uses a lot of disk). Leave off.
   s3_bucket: ""               # Optional Amazon S3 bucket to upload recordings to (only with record: true).
   telegram_token_env: TELEGRAM_BOT_TOKEN   # NAME of the environment variable holding your Telegram bot token.

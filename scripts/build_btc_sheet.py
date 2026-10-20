@@ -16,7 +16,8 @@ MODES={"mixed":("jh_off",late("v8_mixed")),"mixed_f":("jh_now",late("v8_mixed_f"
        "equal_l3":("jh_eq_l3",late("v9_eq_l3")),"equal_l3_f":("jh_eq_l3_f",late("v9_eq_l3_f")),
        "equal_s25l3":("jh_eq_s25l3",late("v9_eq_s25l3")),"equal_s25l3_f":("jh_eq_s25l3_f",late("v9_eq_s25l3_f")),
        "mixed5":("jh_m5",late("v8_mixed5")),"mixed5_f":("jh_m5f",late("v8_mixed5_f")),
-       "mixed_rec_f":("jh_j5",late("v9_j5")),"equal_rec_f":("jh_eqrec",late("v9_eqrec")),"mixed5_rec_f":("jh_m5rec",late("v9_m5rec"))}       # recommended: 25% + 0.03% stop, 0.5% jump pause, NFP/CPI/FOMC hour skipped
+       "mixed_rec_f":("jh_j5",late("v9_j5")),"equal_rec_f":("jh_eqrec",late("v9_eqrec")),"mixed5_rec_f":("jh_m5rec",late("v9_m5rec")),
+       "equal_recfv_f":("jh_fvs2",late("v9_fvs2"))}       # recommended: 25% + 0.03% stop, 0.5% jump pause, NFP/CPI/FOMC hour skipped
 ONLY=sys.argv[2].split(",") if len(sys.argv)>2 else None
 import datetime as _dt; from zoneinfo import ZoneInfo as _Z
 _C=pd.read_csv("data_news/calendar.csv"); _ET=_Z("America/New_York")
@@ -33,7 +34,7 @@ for name,(h,lt) in MODES.items():
         M=pd.concat([M.assign(skip=0),K],ignore_index=True)
     else: M=M.assign(skip=0)
     M["o"]=pd.to_datetime(M.day+" 2026 "+M.window_pt,format="%a %b %d %Y %I:%M %p"); M=M[M.o>="2026-06-01"].sort_values("o")
-    if name in ("mixed_rec_f","equal_rec_f","mixed5_rec_f"):                     # news hour: shown as skipped (would-be values come from mixed_s25l3)
+    if name in ("mixed_rec_f","equal_rec_f","mixed5_rec_f","equal_recfv_f"):                     # news hour: shown as skipped (would-be values come from mixed_s25l3)
         nw=(M.o.dt.tz_localize("America/Los_Angeles").astype("int64")//10**9).isin(NEWS)&(M.skip==0)
         M.loc[nw,["side","entries","contracts","stopped","sold995","settled","pnl","skip"]]=["skipped: NFP/CPI/FOMC hour",0,0,0,0,0,0.0,1]
         M.loc[nw,["avg_buy","first_entry"]]=None

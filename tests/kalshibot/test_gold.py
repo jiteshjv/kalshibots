@@ -1,5 +1,6 @@
 """Gold bot pieces: per-event news windows, skip hours, and the gold feed without a key (stale -> no entries)."""
 import asyncio
+import time
 import datetime as dt
 from dataclasses import replace
 from zoneinfo import ZoneInfo
@@ -56,3 +57,16 @@ def test_gold_feed_without_key_uses_hyperliquid_then_swissquote(monkeypatch):
         t = asyncio.create_task(f.run()); await asyncio.sleep(0.05); f.stop(); await asyncio.sleep(0); t.cancel()
     asyncio.run(go())
     assert f.latest().stale and "hyperliquid" in f.last_error
+
+
+def test_seed_fills_the_dukascopy_gap_from_hyperliquid(monkeypatch, tmp_path):
+    from kalshibot.history import BtcHistory
+    f = GoldFeed(None, data_dir=tmp_path)
+    now = int(time.time()) // 60 * 60
+    duka_end = now - 2 * 3600                                  # Dukascopy stops 2 h ago
+    monkeypatch.setattr(f, "_hour", lambda t: [(s, 4100.0) for s in range(t, min(t + 3600, duka_end))])
+    monkeypatch.setattr(f, "_hl_candles", lambda a, b: [(m, 4099.6, 4099.4, 4099.5) for m in range(a // 60 * 60, b, 60)])
+    h = BtcHistory()
+    n = f.seed_history(h, days=0.5)
+    assert n > 0 and h.range_2h(now) is not None
+    assert abs(h.extreme(now - 600, now, "y") - 4100.1) < 1e-6    # Hyperliquid shifted +0.5 onto the Dukascopy level

@@ -8,6 +8,8 @@ Kalshi settles gold on Pyth (Metal.Index.1OZGOLD/USD, 1-minute close). Live pric
 
 History (2-hour range, 2-day sweeps) is seeded from Dukascopy XAU/USD ticks (public, no key) for the last `days` days and
 shifted to the Pyth level with the median (Kalshi strike - Dukascopy price at the open) of recent settled gold markets.
+Dukascopy publishes each hour late, so the minutes after its last bar are filled from Hyperliquid xyz:GOLD 1-minute candles
+(shifted to the Dukascopy level where the two overlap). Hyperliquid also trades weekends, so it only fills that recent gap.
 """
 from __future__ import annotations
 
@@ -161,6 +163,16 @@ class GoldFeed:
                 diffs.append(float(k) - prev[-1])
         return statistics.median(diffs) if diffs else 0.0
 
+    def _hl_candles(self, start: int, end: int) -> list[tuple[int, float, float, float]]:
+        """Hyperliquid xyz:GOLD 1-minute candles (minute ts, high, low, close) over [start, end)."""
+        req = {"type": "candleSnapshot", "req": {"coin": "xyz:GOLD", "interval": "1m", "startTime": start * 1000, "endTime": end * 1000}}
+        try:
+            c = self._get(HL_URL, json.dumps(req).encode())
+        except Exception as e:
+            log.warning("hyperliquid candles: %s", e)
+            return []
+        return [(int(x["t"]) // 1000, float(x["h"]), float(x["l"]), float(x["c"])) for x in c if start <= int(x["t"]) // 1000 < end]
+
     def seed_history(self, history, days: float = 3) -> int:
         end = int(time.time()) // 3600 * 3600
         ticks: dict[int, float] = {}
@@ -173,8 +185,17 @@ class GoldFeed:
             bars.setdefault(s // 60 * 60, []).append(ticks[s] + off)
         for m, v in sorted(bars.items()):
             history.add_minute_bar(m, max(v), min(v), v[-1])
-        log.info("seeded %d gold minute bars from Dukascopy (offset to Pyth %+.2f)", len(bars), off)
-        return len(bars)
+        now = int(time.time()) // 60 * 60
+        last = max(bars) if bars else end - int(days * 86400) - 60
+        hl = self._hl_candles(min(last - 6 * 3600, now - 6 * 3600), now)  # 6 h of overlap to line the two up
+        both = [bars[m][-1] - c for m, _, _, c in hl if m in bars]
+        shift = statistics.median(both) if both else 0.0
+        fill = [(m, h + shift, lo + shift, c + shift) for m, h, lo, c in hl if m > last]
+        for m, h, lo, c in fill:
+            history.add_minute_bar(m, h, lo, c)
+        log.info("seeded %d gold minute bars from Dukascopy (offset to Pyth %+.2f) + %d from Hyperliquid (shift %+.2f)",
+                 len(bars), off, len(fill), shift)
+        return len(bars) + len(fill)
 
     async def aseed_history(self, history, days: float = 3) -> int:
         return await asyncio.to_thread(self.seed_history, history, days)

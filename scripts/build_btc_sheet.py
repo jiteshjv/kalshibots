@@ -13,6 +13,8 @@ MODES={"mixed":("jh_off",late("v8_mixed")),"mixed_f":("jh_now",late("v8_mixed_f"
        "mixed_l3":("jh_l3off",late("v9_l3")),"mixed_l3_f":("jh_l3",late("v9_l3_f")),
        "mixed_s25l3":("jh_s25l3off",late("v9_s25l3")),"mixed_s25l3_f":("jh_s25l3",late("v9_s25l3_f")),
        "equal":("jh_eq",late("v8_equal")),"equal_f":("jh_eqf",late("v8_equal_f")),
+       "equal_l3":("jh_eq_l3",late("v9_eq_l3")),"equal_l3_f":("jh_eq_l3_f",late("v9_eq_l3_f")),
+       "equal_s25l3":("jh_eq_s25l3",late("v9_eq_s25l3")),"equal_s25l3_f":("jh_eq_s25l3_f",late("v9_eq_s25l3_f")),
        "mixed5":("jh_m5",late("v8_mixed5")),"mixed5_f":("jh_m5f",late("v8_mixed5_f")),
        "mixed_rec_f":("jh_j5",late("v9_j5")),"equal_rec_f":("jh_eqrec",late("v9_eqrec")),"mixed5_rec_f":("jh_m5rec",late("v9_m5rec"))}       # recommended: 25% + 0.03% stop, 0.5% jump pause, NFP/CPI/FOMC hour skipped
 ONLY=sys.argv[2].split(",") if len(sys.argv)>2 else None
@@ -47,11 +49,8 @@ for name,(h,lt) in MODES.items():
         caps[k]=round(mx,2); peak[k]=int(pk); held[k]=max(map(sec,g.exit_time))-min(map(sec,g.entry_time))
     M["cap"]=M.ticker.map(caps).fillna(0); M["held_s"]=M.ticker.map(held).fillna(0); M["peak_n"]=M.ticker.map(peak).fillna(0).astype(int)
     D=clean({"m":M.to_dict("records"),"e":ent}); body=json.dumps(D,separators=(",",":"),allow_nan=False)
-    if len(body)>15_000_000:                    # artifact per-file limit: entries go into <name>_e<i>.json parts
-        keys=sorted(ent); n=-(-len(body)//12_000_000); D["e"]={}; D["parts"]=n
-        for i in range(n):
-            json.dump({k:D_e for k,D_e in clean({k:ent[k] for k in keys[i::n]}).items()},open(f"{OUT}/{name}_e{i}.json","w"),separators=(",",":"),allow_nan=False)
-        body=json.dumps(D,separators=(",",":"),allow_nan=False)
-    open(f"{OUT}/{name}.json","w").write(body)
+    import gzip                                 # one gzip file per option (the page unpacks it); ~5x smaller than JSON
+    import base64                               # served as text: <name>.z.txt = base64(gzip(json)); the page unpacks it
+    open(f"{OUT}/{name}.z.txt","w").write(base64.b64encode(gzip.compress(body.encode(),compresslevel=9)).decode())
     T=M[M.skip==0]; c=T.pnl.cumsum(); dd=(c-c.cummax()).min()
-    print(f"{name:14s} traded {len(T)}, skipped {int(M.skip.sum())}, total ${T.pnl.sum():+,.0f}, max DD ${dd:,.0f}, max peak held {T.peak_n.max():,}, MB {os.path.getsize(f'{OUT}/{name}.json')/1e6:.1f}")
+    print(f"{name:14s} traded {len(T)}, skipped {int(M.skip.sum())}, total ${T.pnl.sum():+,.0f}, max DD ${dd:,.0f}, max peak held {T.peak_n.max():,}, MB {os.path.getsize(f'{OUT}/{name}.z.txt')/1e6:.1f}")

@@ -40,7 +40,7 @@ from kalshibot.marketdata.kalshi_ws import KalshiWs, PollingFeed
 from kalshibot.marketdata.view import ViewBuilder
 from kalshibot.risk import RiskGuard
 from kalshibot.strategy import Strategy
-from kalshibot.types import Fill, MarketInfo, OrderIntent
+from kalshibot.types import Fill, Lot, MarketInfo, OrderIntent
 
 log = logging.getLogger("kalshibot")
 ENTRY_KINDS = ("limit_buy", "market_buy")
@@ -199,10 +199,70 @@ class App:
         run = MarketRun(m, st)
         self.runs[m.ticker] = run
         self.current = run
+        try:
+            await self._resume(run)
+        except Exception as e:                              # never trade blind: manage nothing new in this market
+            st.no_entries = True
+            self.journal.event("error", "resume", f"{m.ticker}: could not resume after restart ({e}); no new entries")
+            self.alerts.error("resume", e)
         self.journal.record_market_open(m, getattr(st, "range2h", None), skipped=getattr(st, "skipped", None) or None)
         await self.feed.set_tickers([m.ticker])
         self.views.reset(m.ticker)
         log.info("market %s strike %.2f", m.ticker, m.strike)
+
+    async def _resume(self, run: MarketRun) -> None:
+        """Restart in the middle of a market: take over its lots (journal) and, live, check them against Kalshi.
+        Live: positions + resting orders come from Kalshi (reconcile). If Kalshi's position differs from the journal,
+        the journal's open lots are marked unknown, Kalshi's position becomes one lot per side and the market gets
+        no new entries. Resting take-profit sells are adopted (not re-placed); stray resting buys are cancelled.
+        Paper: the journal is the truth; the paper broker is told what is held and the 99.7c sells are re-placed."""
+        from kalshibot.journal import _LOT_FIELDS
+        t = run.market.ticker
+        lots = [Lot(**{k: r[k] for k in _LOT_FIELDS}) for r in self.journal.lots(t)]
+        held: dict[str, int] = {}
+        for L in lots:
+            if L.open:
+                held[L.side] = held.get(L.side, 0) + L.qty
+        tps: dict[str, tuple[str, int, float]] = {}
+        no_new = False
+        if self.s.risk.mode == "live":
+            recon = await self.broker.reconcile(run.market)
+            ex = {h["side"]: h["qty"] for h in recon}
+            if ex != {k: v for k, v in held.items() if v}:
+                no_new = True
+                msg = f"{t}: Kalshi position {ex or 'none'} != journal {held or 'none'}; managing Kalshi's, no new entries"
+                self.journal.event("error", "resume_mismatch", msg)
+                self.alerts.error("resume", msg)
+                for L in lots:
+                    if L.open:
+                        L.exit = "unknown"
+                stop_pct = self.s.strategy.stop_pct
+                for h in recon:
+                    buy = h["buy"] or 0.0
+                    lots.append(Lot(lot_id=f"{t}-R{h['side']}", ticker=t, side=h["side"], qty=h["qty"], buy=buy, fee_in=h["fee_in"],
+                                    stop=round(buy * (1 - stop_pct), 4), entry_ts=time.time(), how="reconciled"))
+            jo = {o["client_id"]: o for o in self.journal.open_orders(t)}
+            for st in self.broker.open_orders(t):
+                self.cid_ticker[st.client_id] = t
+                if st.action == "buy":
+                    await self.broker.cancel(st.client_id)
+                    continue
+                o = jo.get(st.client_id)
+                if o and o.get("lot_id") and not no_new:
+                    tps[o["lot_id"]] = (st.client_id, st.remaining, st.price)
+        else:
+            for side, q in held.items():
+                self.broker.restore_position(t, side, q)
+            for o in self.journal.open_orders(t):           # the old paper orders died with the old process
+                self.journal.update_order(o["client_id"], status="cancelled", reason="restart")
+        if not lots:
+            return
+        run.strat.resume(lots, tps, no_entries=no_new)
+        n_open = sum(L.qty for L in run.strat.open_lots())
+        self.journal.event("warn" if no_new else "info", "resume",
+                           f"{t}: resumed after restart, {len(run.strat.open_lots())} open entries ({n_open} contracts), "
+                           f"{len(tps)} take-profit sells adopted" + (", no new entries" if no_new else ""))
+        log.info("resumed %s: %d open lots, %d contracts", t, len(run.strat.open_lots()), n_open)
 
     async def _second(self, now: float) -> None:
         if self.switch != "kill" and self.risk.must_flatten():
@@ -306,8 +366,21 @@ class App:
                 self.journal.record_market_close(t, res == "yes")
                 log.info("settled %s %s from the journal (%d open entries settled)", t, res, n)
 
+    def _hist_path(self):
+        return self.data / "history_bars.npz"
+
+    def _save_history(self) -> None:
+        try:
+            self.history.save(self._hist_path())
+        except Exception as e:                               # a cache: never fatal
+            log.warning("history cache: %s", e)
+
     async def _housekeeping(self) -> None:
+        last_save = time.time()
         while not self.stopping:
+            if time.time() - last_save > 300:
+                await asyncio.to_thread(self._save_history)
+                last_save = time.time()
             write_heartbeat(self.data)
             today = dt.datetime.now(dt.timezone.utc).date()
             if today != self.last_day:
@@ -383,8 +456,8 @@ class App:
                 await self._submit(run, it, None)
 
     def _on_signal(self, sig) -> None:
-        log.warning("signal %s: cancelling all orders and exiting (positions stay open)", getattr(sig, "name", sig))
-        self.journal.event("warn", "signal", f"{getattr(sig, 'name', sig)}: shutting down, orders cancelled, positions left open")
+        log.warning("signal %s: cancelling entry orders and exiting (positions and 99.7c sells stay; resumed on restart)", getattr(sig, "name", sig))
+        self.journal.event("warn", "signal", f"{getattr(sig, 'name', sig)}: shutting down, entry orders cancelled, positions and take-profit sells left (resumed on restart)")
         self.stopping = True
 
     def _finish(self) -> None:
@@ -431,8 +504,11 @@ class App:
                 loop.add_signal_handler(sig, self._on_signal, sig)
             except (NotImplementedError, RuntimeError):
                 pass
-        n = await self.btc.aseed_history(self.history, days=self.hist_days)
-        log.info("seeded %s minute bars of BTC history", n)
+        last = self.history.load(self._hist_path(), max_age_s=self.hist_days * 86400)
+        gap_days = self.hist_days if last is None else min(self.hist_days, (time.time() - last) / 86400 + 5 / 1440)
+        n = await self.btc.aseed_history(self.history, days=gap_days)
+        log.info("history: %s minute bars from the cache + %s fetched (%.2f days)",
+                 0 if last is None else len(self.history._bars) - n, n, gap_days)
         self.server.start()
         self.alerts.started(mode)
         tasks = [asyncio.create_task(self.btc.run()), asyncio.create_task(self.feed.run()),
@@ -450,10 +526,11 @@ class App:
                     self.alerts.error("tick", e)
         finally:
             self.stopping = True
-            try:
-                await self.broker.cancel_all(None)
+            try:                                         # resting buys only: the 99.7c sells keep working on Kalshi
+                await self.broker.cancel_entries()
             except Exception:
                 pass
+            self._save_history()
             for t in tasks:
                 t.cancel()
             self.btc.stop()

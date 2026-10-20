@@ -309,6 +309,19 @@ class LiveBroker(BrokerBase):
                         self.errors.append(f"cancel {oid}: {e2}")
         return sum(self._finish(o, "cancelled") for o in mine)
 
+    async def cancel_entries(self) -> int:
+        """Shutdown: cancel our resting buys AND any resting buy the exchange still lists (an earlier run's);
+        resting sells (take-profits) are left working."""
+        n = await super().cancel_entries()
+        try:
+            for o in _rows(await self._call(self.rest.orders, "resting"), "orders"):
+                st = self._adopt_order(o, o.get("ticker") or o.get("market_ticker") or "")
+                if st is not None and st.action == "buy" and await self.cancel(st.client_id):
+                    n += 1
+        except Exception as e:                            # noqa: BLE001
+            self.errors.append(f"cancel_entries list: {e}")
+        return n
+
     async def on_disconnect(self) -> int:
         return await self.cancel_all()
 

@@ -17,6 +17,8 @@ Minute bars (``add_minute_bar``) only fill the time BEFORE the first per-second 
 from __future__ import annotations
 
 import math
+import os
+import time
 
 import numpy as np
 
@@ -68,6 +70,48 @@ class BtcHistory:
             if cut is not None:
                 for k in [k for k in self._bars if k < cut]:
                     del self._bars[k]
+
+    def minute_bars(self) -> dict[int, tuple[float, float, float]]:
+        """All history as minute bars: the stored bars plus bars built from the per-second buffer (which wins)."""
+        out = dict(self._bars)
+        if self._t0 is not None and self._n:
+            a = (-self._t0) % 60
+            buf = self._buf[: self._n]
+            for i in range(a, self._n - 59, 60):
+                seg = buf[i:i + 60]
+                ok = seg[seg == seg]
+                if len(ok):
+                    out[self._t0 + i] = (float(ok.max()), float(ok.min()), float(ok[-1]))
+        return out
+
+    def save(self, path: str | os.PathLike) -> int:
+        """Write the minute bars to `path` (.npz, atomic). Returns the number of bars written."""
+        b = self.minute_bars()
+        if not b:
+            return 0
+        k = sorted(b)
+        arr = np.array([b[t] for t in k], dtype=np.float64)
+        tmp = str(path) + ".tmp.npz"
+        np.savez_compressed(tmp, t=np.array(k, dtype=np.int64), hlc=arr)
+        os.replace(tmp, path)
+        return len(k)
+
+    def load(self, path: str | os.PathLike, max_age_s: float | None = None, now: float | None = None) -> int | None:
+        """Add bars saved by save(). Returns the newest bar's minute (None if nothing usable)."""
+        try:
+            z = np.load(path)
+            t, hlc = z["t"], z["hlc"]
+        except Exception:
+            return None
+        if not len(t):
+            return None
+        now = time.time() if now is None else now
+        if max_age_s is not None:
+            keep = t >= now - max_age_s
+            t, hlc = t[keep], hlc[keep]
+        for m, (h, lo, c) in zip(t.tolist(), hlc.tolist()):
+            self.add_minute_bar(m, h, lo, c)
+        return int(t[-1]) if len(t) else None
 
     def _grow(self, need: int) -> None:
         cap = max(len(self._buf) + self.CHUNK, need + self.CHUNK)

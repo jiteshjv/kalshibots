@@ -177,6 +177,19 @@ class BrokerBase:
     def position(self, ticker: str, side: Side) -> int:
         return self.positions.get((ticker, side), 0)
 
+    async def cancel_entries(self) -> int:
+        """Shutdown: cancel resting BUY orders only (they could add to a position nobody watches). Take-profit sells
+        stay on the exchange: they can only reduce a position, at the take-profit price."""
+        n = 0
+        for o in self.open_orders():
+            if o.action == "buy" and await self.cancel(o.client_id):
+                n += 1
+        return n
+
+    def restore_position(self, ticker: str, side: Side, qty: int) -> None:
+        """Restart: the contracts already held (so sells are allowed)."""
+        self.positions[(ticker, side)] = int(qty)
+
     # helpers --------------------------------------------------------------------------------------------------
     def _new_id(self) -> str:
         return f"{self.id_prefix}-{next(self._ids)}"

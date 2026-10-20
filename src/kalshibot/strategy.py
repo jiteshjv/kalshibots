@@ -124,6 +124,31 @@ class Strategy:
                     self.skipped = f"{int(a)}-{int(b)} PT"
                     break
 
+    def resume(self, lots: list[Lot], tps: dict[str, tuple[str, int, float]] | None = None,
+               no_entries: bool = False) -> None:
+        """Restart in the middle of a market: take over this market's lots (open and closed, from the journal or
+        the exchange) after start_market(). tps = lot_id -> (client_id, qty, price) of take-profit sells that are
+        still resting on the exchange (they are adopted, not re-placed). Open lots get their stops back at once
+        (the stop mark comes from the next traded second). no_entries = manage what is held, open nothing new."""
+        self.lots = sorted(lots, key=lambda L: L.entry_ts or 0)
+        base = {L.lot_id.split(".")[0] for L in self.lots}
+        self.n_entries = len(base)
+        for b in base:
+            tail = b.rsplit("-L", 1)[-1]
+            if tail.isdigit():
+                self._lot_seq = max(self._lot_seq, int(tail))
+        if self.lots:
+            self.side = self.lots[-1].side
+        if self.open_lots():
+            self.skipped = None                    # it traded before the restart: keep managing it
+        for lot_id, (cid, qty, px) in (tps or {}).items():
+            L = self._lot(lot_id)
+            if L is None or not L.open:
+                continue
+            self.orders[cid] = _Order(cid, "limit_sell", L.side, qty, px, lot_id, "tp", 0)
+            self.tp_of[lot_id] = cid
+        self.no_entries = self.no_entries or no_entries
+
     def end_market(self, yes_won: bool) -> list[Lot]:
         """Settle every open lot at $1/$0 (no fee). Resting orders are the broker's to cancel."""
         m = self.market

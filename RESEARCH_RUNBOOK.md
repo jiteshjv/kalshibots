@@ -479,3 +479,6 @@ ops (journal, alerts, dashboard, recorder, Docker, docs/SETUP.md). Integration (
 - Gold sheet: skipped rows now labelled (7-9 AM PT / 2-day+ sweep / news window).
 - Gold sheet now at 2x size (80/40, max 2,000; results/gn2_A, gn2_C; scripts/build_gold_sheet.py) with the BTC sheet's metrics.
   Version A + gold filters + news: +$44,304, DD -$4,186; Version C + news: +$32,043, DD -$2,378. Trading size to be decided later.
+- Sizing with the recommended rules (Jun 1 - Oct 19; jh_/v9_ eqrec, m5rec; sheet: Recommended works for all sizings):
+  Mixed +$323.3K, DD -$15.7K, tot/DD 20.6, stopped 4.13M, block p90 2,000; Equal 100 +$250.4K, DD -$10.9K, tot/DD 22.9, stopped 3.22M,
+  block p90 1,500, worst day -$6.0K; Mixed every 5 s +$451.9K, DD -$24.5K, 18.5, stopped 6.56M, 6.9c per stopped contract.

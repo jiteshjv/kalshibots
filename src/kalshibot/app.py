@@ -331,8 +331,7 @@ class App:
         elif st.spread_blocks:
             reason = f"spread > {self.s.strategy.max_spread * 100:g}c"
         elif st.best:
-            _, lead, need, _s = st.best
-            reason = f"low moneyness {lead * 100:.3f}/{need * 100:.3f}%"
+            reason = "low moneyness"
         else:
             reason = "late start"
         self.journal.mark_market_skipped(run.market.ticker, reason)

@@ -115,3 +115,12 @@ def test_history_cache_roundtrip(tmp_path):
     g = BtcHistory(max_days=4)
     last = g.load(p, now=t0 + 600)
     assert last == t0 + 540 and g.extreme(t0, t0 + 600, "y") == 60_599 and g.extreme(t0 - 3600, t0, "y") == 60_100
+
+
+def test_next_market_ticker_for_recording():
+    import datetime as _dt
+    from zoneinfo import ZoneInfo
+    from kalshibot.app import next_ticker
+    c = _dt.datetime(2026, 10, 20, 23, 45, tzinfo=ZoneInfo("America/New_York")).timestamp()   # crosses midnight
+    assert next_ticker("KXBTC15M", c) == "KXBTC15M-26OCT210000-00"
+    assert next_ticker("KXGOLD15M", c - 900) == "KXGOLD15M-26OCT202345-45"

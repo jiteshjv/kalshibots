@@ -47,6 +47,12 @@ from kalshibot.types import Fill, Lot, MarketInfo, OrderIntent
 log = logging.getLogger("kalshibot")
 
 
+def next_ticker(series: str, close_ts: float) -> str:
+    """Ticker of the 15-min market after the one closing at close_ts, e.g. KXBTC15M-26OCT202215-15 (close time, New York)."""
+    c = dt.datetime.fromtimestamp(close_ts + 900, ZoneInfo("America/New_York"))
+    return f"{series}-{c.strftime('%y%b%d%H%M').upper()}-{c.strftime('%M')}"
+
+
 def _clock(d) -> str:
     """'9:05 PM' with no leading zero on every OS (Windows has no %-I / %-d)."""
     return d.strftime("%I:%M %p").lstrip("0")
@@ -67,6 +73,7 @@ class MarketRun:
     entry_info: dict = field(default_factory=dict)     # lot_id -> (moneyness, required threshold) at the entry decision
     skip_saved: bool = False
     blocks: dict = field(default_factory=dict)          # risk-guard block reason -> count (entries refused)
+    prefetched: bool = False                            # next market's book/trades already subscribed (recording)
 
 
 class App:
@@ -88,9 +95,11 @@ class App:
             self.btc = GoldFeed(self.history, rest=self.rest, data_dir=self.data)
         else:
             self.btc = BtcFeed(rest=self.rest if self.rest.has_key else None, history=self.history)
-        self.feed = (KalshiWs(self.rest, on_book=self._rec_book) if self.rest.has_key
-                     else PollingFeed(self.rest, book_interval=settings.io.book_poll_s, on_book=self._rec_book))
+        self.feed = (KalshiWs(self.rest, on_book=self._rec_book, on_trade=self._rec_trade) if self.rest.has_key
+                     else PollingFeed(self.rest, book_interval=settings.io.book_poll_s, on_book=self._rec_book,
+                                      on_trade=self._rec_trade))
         self._rec_last: dict[str, float] = {}
+        self._open_of: dict[str, float] = {}       # ticker -> open time (also for the next market, before the bot switches)
         self.views = ViewBuilder(self.feed, self.btc)
         if settings.risk.mode == "live":
             from kalshibot.execution.live import LiveBroker      # refuses unless the confirm phrase matches
@@ -298,9 +307,11 @@ class App:
         view = self.views.second(m, now)
         if view.s < 0 or view.s > 899:
             return
-        if self.recorder and view.book is not None:
-            for tr in view.trades:
-                self.recorder.write("trade", {"t": m.ticker, "ts": tr.ts, "side": tr.taker_side, "p": tr.price, "q": tr.qty})
+        if not run.prefetched and now >= m.close_ts - 30:       # record the next market from its first second
+            run.prefetched = True
+            nxt = next_ticker(self.s.strategy.series, m.close_ts)
+            self._open_of[nxt] = m.close_ts
+            await self.feed.set_tickers([m.ticker, nxt])
         self.broker.on_second(view, m.ticker)
         if self.switch == "kill":
             await self._submit_all(run, run.strat.flatten(view), view)
@@ -503,8 +514,14 @@ class App:
             return
         self._rec_last[tk] = now
         run = self.runs.get(tk)
-        s = int(now - run.market.open_ts) if run else None
+        op = run.market.open_ts if run else self._open_of.get(tk)
+        s = int(now - op) if op is not None else None
         self.recorder.write("book", {"t": tk, "s": s, "y": b.yes_bids[:10], "n": b.no_bids[:10]})
+
+    def _rec_trade(self, tk: str, tr) -> None:
+        """Record every trade as it arrives (any subscribed market, including the next one before the bot switches)."""
+        if self.recorder is not None:
+            self.recorder.write("trade", {"t": tk, "ts": tr.ts, "side": tr.taker_side, "p": tr.price, "q": tr.qty})
 
     def _feed_down(self) -> bool:
         """The price feed reports an error (label skips with the cause, not the symptom)."""

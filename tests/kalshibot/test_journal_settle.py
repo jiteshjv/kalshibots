@@ -16,3 +16,20 @@ def test_unsettled_and_orphan_settlement(tmp_path):
     assert lots["A-L02"]["exit"] == "stop"
     assert j.unsettled_markets(3000.0)[0]["ticker"] == "KXBTC15M-B"
     j.close()
+
+
+def test_market_note_excludes_it_from_dashboard_totals(tmp_path):
+    import sqlite3
+    from kalshibot.journal import Journal
+    from kalshibot.types import Lot, MarketInfo
+    db = sqlite3.connect(tmp_path / "journal.sqlite")                  # an old journal without the note column
+    db.execute("CREATE TABLE markets(ticker TEXT PRIMARY KEY, open_ts REAL, close_ts REAL, strike REAL, result TEXT,"
+               " skipped TEXT, range_2h REAL, closed_ts REAL)"); db.commit(); db.close()
+    j = Journal(tmp_path)
+    m = MarketInfo("KXBTC15M-T1", 1792540000.0, 1792540900.0, 80000.0)
+    j.record_market_open(m)
+    j.record_lot(Lot(lot_id="KXBTC15M-T1-L01", ticker=m.ticker, side="y", qty=100, buy=0.9, fee_in=0.5, stop=0.67,
+                     entry_ts=m.open_ts + 200, how="limit", exit="tp", exit_px=0.997, exit_ts=m.open_ts + 700))
+    assert j.set_note([m.ticker], "BRTI bug, ignore") == 1
+    row = j.dashboard_data()["m"][0]
+    assert row["note"] == "BRTI bug, ignore" and row["excluded"] == 1 and row["entries"] == 1

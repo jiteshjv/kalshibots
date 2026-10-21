@@ -46,7 +46,7 @@ DONE_STATUSES = ("filled", "cancelled", "expired", "rejected")
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS markets(
   ticker TEXT PRIMARY KEY, open_ts REAL, close_ts REAL, strike REAL, result TEXT, skipped TEXT, range_2h REAL,
-  closed_ts REAL);
+  closed_ts REAL, note TEXT);
 CREATE TABLE IF NOT EXISTS lots(
   lot_id TEXT PRIMARY KEY, ticker TEXT, side TEXT, qty INTEGER, buy REAL, fee_in REAL, stop REAL, entry_ts REAL,
   how TEXT, exit TEXT, exit_px REAL, exit_ts REAL, fee_out REAL DEFAULT 0, mny REAL, th REAL, updated_ts REAL);
@@ -135,6 +135,9 @@ class Journal:
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.execute("PRAGMA synchronous=NORMAL")
             self._db.executescript(_SCHEMA)
+            cols = {r[1] for r in self._db.execute("PRAGMA table_info(markets)")}
+            if "note" not in cols:                       # journals made before market notes existed
+                self._db.execute("ALTER TABLE markets ADD COLUMN note TEXT")
 
     # ------------------------------------------------------------------ low level
     def _exec(self, sql: str, args: Iterable = ()) -> sqlite3.Cursor:
@@ -162,6 +165,14 @@ class Journal:
             "skipped=excluded.skipped",                     # a restart re-decides the skip
             (m.ticker, m.open_ts, m.close_ts, m.strike, range_2h, skipped),
         )
+
+    def set_note(self, tickers: Iterable[str], note: str | None) -> int:
+        """Mark markets (e.g. 'BRTI bug, ignore'): the dashboard shows the note and leaves them out of the totals.
+        note=None clears it."""
+        n = 0
+        for t in tickers:
+            n += self._exec("UPDATE markets SET note=? WHERE ticker=?", (note, t)).rowcount
+        return n
 
     def mark_market_skipped(self, ticker: str, reason: str) -> None:
         """The strategy skipped the whole market (2h range or sweep filters)."""
@@ -357,6 +368,8 @@ class Journal:
                 "result": mk["result"],
                 "d": pt.date().isoformat(),
             }
+            if mk.get("note"):
+                row["note"], row["excluded"] = mk["note"], 1      # shown, but left out of totals and charts
             if not ml:  # skipped
                 row.update(side=f"skipped: {mk['skipped']}", entries=0, contracts=0, avg_buy=None, first_entry=None,
                            stopped=0, sold995=0, settled=0, pnl=0.0, skip=1, cap=0.0, held_s=0.0, open=0)

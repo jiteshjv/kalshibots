@@ -168,9 +168,9 @@ const usd=v=>v==null?"":(v<0?"−$":"+$")+Math.abs(v).toLocaleString("en-US",{ma
 const cls=v=>v>0?"pos":v<0?"neg":"mut";const c=v=>v==null?"":(v*100).toFixed(1)+"¢";
 const pct=v=>v==null?"":v.toFixed(3)+"%";
 const sum=a=>a.reduce((x,y)=>x+(y||0),0);
-let ALL=[],M=[],E={},META={},EV=[];let EQ=null;const open=new Set();let LASTMAX=null;
+let ALL=[],M=[],MX=[],E={},META={},EV=[];let EQ=null;const open=new Set();let LASTMAX=null;
 function inRange(r){const a=$("#d0").value,b=$("#d1").value;return (!a||r.d>=a)&&(!b||r.d<=b);}
-function apply(){M=ALL.filter(inRange);summary();draw();
+function apply(){M=ALL.filter(r=>inRange(r)&&!r.excluded);MX=ALL.filter(r=>inRange(r)&&r.excluded);summary();draw();
  const a=$("#d0").value,b=$("#d1").value,full=a===$("#d0").min&&b===$("#d1").max;
  $("#rangetxt").textContent=!ALL.length?"":full?"showing all dates":`showing ${a}${a===b?"":" to "+b}`;["#dall2","#dall3"].forEach(s=>$(s).hidden=full||!ALL.length);
  try{localStorage.setItem("kb_range",JSON.stringify([a,b,full]))}catch(e){}}
@@ -276,10 +276,11 @@ function sub(t){const rows=E[t]||[];
  return `<tr class="sub"><td colspan="14"><div class="inner"><table><tr><th>#</th><th>Time</th><th class="l">Side</th><th>Contracts</th><th>Moneyness</th><th>Needed</th><th>Buy</th><th>Stop price</th><th class="l">Exit</th><th>Exit time</th><th>Exit price</th><th>P&amp;L</th></tr>`+
  (rows.length?rows.map(([n,t1,sd,cn,mn,th,b,s,ex,t2,xp,p])=>`<tr><td>${n}</td><td>${esc(t1)}</td><td class="l">${sd==="Y"?"YES":"NO"}</td><td>${cn}</td><td>${pct(mn)}</td><td>${pct(th)}</td><td>${c(b)}</td><td>${c(s)}</td><td class="l"><span class="tag ${tagOf(ex)}">${esc(ex.startsWith("sold")?ex.replace("c","¢"):ex)}</span></td><td>${esc(t2||"")}</td><td>${c(xp)}</td><td class="${cls(p)}">${usd(p)}</td></tr>`).join(""):`<tr><td colspan="12" class="mut" style="text-align:left">no entries</td></tr>`)+"</table></div></td></tr>"}
 function draw(){const fr=$("#fres").value;
- const R=M.filter(r=>fr==="k"?r.skip:fr==="o"?r.open>0:(!r.skip||!fr)&&(!fr||(fr==="w"?r.pnl>0:fr==="l"?r.pnl<=0:r.stopped>0))).slice().reverse();
+ const keep=r=>fr==="k"?r.skip:fr==="o"?r.open>0:(!r.skip||!fr)&&(!fr||(fr==="w"?r.pnl>0:fr==="l"?r.pnl<=0:r.stopped>0));
+ const R=[...M,...MX].sort((a,b)=>tms(a)-tms(b)).filter(r=>r.excluded?!fr:keep(r)).reverse();   // noted markets: shown, not counted
  $("#count").textContent=R.length+" markets · "+(usd(sum(R.map(r=>r.pnl)))||"$0");
  if(!ALL.length){$("#mk").innerHTML=`<tr><td class="empty-msg">No markets yet. The bot lists a market here once it makes its first entry (or skips one).</td></tr>`;return;}
- $("#mk").innerHTML=H+R.map(r=>`<tr class="mk" tabindex="0" data-t="${esc(r.ticker)}" title="${esc(r.ticker)}"><td class="l"><span class="caret">${open.has(r.ticker)?"▾":"▸"}</span></td><td class="l">${esc(r.day)}</td><td class="l">${esc(r.window_pt)}</td><td class="l">${r.skip?`<span class="tag t-set">${esc(r.side)}</span>`:esc(r.side)}</td>`+
+ $("#mk").innerHTML=H+R.map(r=>`<tr class="mk" tabindex="0" data-t="${esc(r.ticker)}" title="${esc(r.ticker)}"><td class="l"><span class="caret">${open.has(r.ticker)?"▾":"▸"}</span></td><td class="l">${esc(r.day)}</td><td class="l">${esc(r.window_pt)}</td><td class="l">${r.skip?`<span class="tag t-set">${esc(r.side)}</span>`:esc(r.side)}${r.note?` <span class="tag t-stop" title="left out of the totals">${esc(r.note)}</span>`:""}</td>`+
    `<td>${r.strike==null?"":Number(r.strike).toLocaleString("en-US",{minimumFractionDigits:2})}</td><td class="l">${esc(r.result||(r.skip?"":"pending"))}</td><td>${esc(r.first_entry||"")}</td>`+
    (r.skip?`<td></td><td></td><td></td><td></td><td></td><td></td><td class="mut">no trade</td>`:
    `<td>${r.entries}</td><td>${r.contracts.toLocaleString()}</td><td>${c(r.avg_buy)}</td><td>${r.stopped}</td><td>${r.sold995}</td><td>${r.settled}</td><td class="${cls(r.pnl)}">${usd(r.pnl)}${r.open?` <span class="tag t-open">${r.open} open</span>`:""}</td>`)+`</tr>`+(open.has(r.ticker)?sub(r.ticker):"")).join("");}

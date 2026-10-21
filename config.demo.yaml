@@ -1,0 +1,25 @@
+# DEMO run on this Mac (Kalshi demo exchange, fake money, demo key), 1 contract per entry. Was: RECOMMENDED setup (2026-10-20, tested Jun 1 - Oct 19), simulated fills, order book recorded locally.
+strategy:
+  sizing: equal         # 100 contracts every entry (no 200 early entries)
+  size_late: 1
+  max_held: 50
+  stop_pct: 0.25        # stop an entry 25% below its buy price ...
+  stop_lead: 0.0003     # ... AND BTC within 0.03% of the strike
+  stop_recheck: true    # sell only if the bid is still at or below the stop price
+  stop_fair: true       # ... or when BTC's fair value for our side is below it (sells before the bid catches up; backtest +$7.7K)
+  jump_pause: 0.005     # no new entries for 15 min after a 1-minute BTC move above 0.5%
+  sweep_days: 3         # sweep filter (2026-10-20): skip only after a break of a 3- to 14-day high/low on our side ...
+  sweep_max_days: 30    # ... (not when it also breaks the 30-day level); the bot loads 31 days of BTC history at start
+  sweep_4h_m60: 0       # 4h sweep + stretched 1h rule off (it lost money out of sample)
+risk:
+  mode: demo
+  daily_loss_limit: 15
+  news_mode: window     # NFP / CPI / FOMC: no new entries from the release ...
+  news_events: jobs,cpi,fomc
+  news_before_min: 0
+  news_after_min: 60    # ... until 60 minutes after it
+io:
+  data_dir: ~/kalshibot-demo-data
+  record: false
+  dashboard_port: 8789
+  book_poll_s: 0.2           # book every 200 ms (5/s) - see the fast in-and-out orders around moves

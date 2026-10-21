@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.kalshibot.demo</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>/Users/jvidhani/trading/research/kalshi_btc/scripts/launchd_run.sh</string><string>demo</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>ExitTimeOut</key><integer>30</integer>
+  <key>StandardErrorPath</key><string>/Users/jvidhani/trading/research/kalshi_btc/logs/launchd_demo.err</string>
+</dict></plist>

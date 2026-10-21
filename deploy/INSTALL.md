@@ -128,7 +128,8 @@ so you can watch real orders, fills, stops and take-profit sells without risking
 ## 9. Going live (real money)
 
 **First move money to exchange index 2** on kalshi.com (account settings → exchange indexes, a manual transfer or a target
-allocation). Kalshi holds money per shard; BTC and gold markets are on shard 2, and the bot's orders are refused if shard 2
+allocation), or with `python C:\kalshibot\app\kb.py C:\kalshibot\jitesh fund --to 2 --amount 500` (asks you to type YES;
+`fund --show` lists the money per shard). Kalshi holds money per shard; BTC and gold markets are on shard 2, and the bot's orders are refused if shard 2
 is empty even when your account has money on shard 0. The bot checks this at start and warns on the dashboard.
 
 

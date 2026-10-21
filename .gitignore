@@ -26,3 +26,5 @@ logs/
 kalshibot-vps.tar.gz
 kalshibot-vps.zip
 kalshibot-install.zip
+kalshibot-install/
+kalshibot-install */

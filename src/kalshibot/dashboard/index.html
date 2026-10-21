@@ -346,7 +346,7 @@ $("#dwk").addEventListener("click",()=>{const b=$("#d1").max;if(!b)return;const 
 $("#dtoday").addEventListener("click",()=>{const b=$("#d1").max;if(b)setR(b,b);});
 async function sw(name,question,done){
  if(!confirm(question))return;
- const tok=prompt("Dashboard token (the KALSHIBOT_DASH_TOKEN value from your .env file):");if(!tok)return;
+ const tok=prompt("Dashboard password: KALSHIBOT_DASH_TOKEN in the .env file (VPS), or dashboard_token.txt in the bot's data folder (this Mac):");if(!tok)return;
  try{const r=await fetch(name,{method:"POST",headers:{"Authorization":"Bearer "+tok}});const j=await r.json().catch(()=>({}));
   alert(r.ok?done:"Not done: "+(j.error||("HTTP "+r.status)));}
  catch(e){alert("Could not reach the bot.");}
@@ -379,7 +379,7 @@ async function loadSettings(){
   return `<label for="${id}">${lab}${inp}${f.help?`<span class="hl">${esc(f.help)}</span>`:""}${ov.has(f.key)?`<button type="button" class="lnk" data-reset="${f.key}" style="align-self:start;padding:2px 6px">reset to config</button>`:""}</label>`;}).join("");
 }
 async function saveSettings(body){
- const tok=prompt("Dashboard token (the KALSHIBOT_DASH_TOKEN value from your .env file):");if(!tok)return;
+ const tok=prompt("Dashboard password: KALSHIBOT_DASH_TOKEN in the .env file (VPS), or dashboard_token.txt in the bot's data folder (this Mac):");if(!tok)return;
  try{const r=await fetch("settings",{method:"POST",headers:{"Authorization":"Bearer "+tok,"Content-Type":"application/json"},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));$("#setmsg").textContent=r.ok?j.message:"Not saved: "+((j.errors||[]).join("; ")||j.error||("HTTP "+r.status));}
  catch(e){$("#setmsg").textContent="Could not reach the bot.";}

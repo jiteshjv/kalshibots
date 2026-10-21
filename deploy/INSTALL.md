@@ -112,6 +112,8 @@ so you can watch real orders, fills, stops and take-profit sells without risking
 
 1. Make a free account at https://demo.kalshi.co and create an API key there (Account → API Keys). It is separate from
    your real key and only works on demo.
+   Add demo funds there, then move them to **exchange index 2** (account settings → exchange indexes): Kalshi keeps money
+   per "shard" and BTC / gold trade on shard 2. Orders are refused ("insufficient shard balance") if shard 2 is empty.
 2. Save its key file as `C:\kalshibot\jitesh\secrets\kalshi-demo.pem` and put its Key ID after `KALSHI_DEMO_API_KEY_ID=`
    in `C:\kalshibot\jitesh\.env`.
 3. In one bot's `config.yaml` set `mode: demo` under `risk:`, run `python C:\kalshibot\app\run.py C:\kalshibot\jitesh\btc --check`
@@ -120,7 +122,15 @@ so you can watch real orders, fills, stops and take-profit sells without risking
    not the real market's, so treat demo as a test of the plumbing, not of the strategy.
 5. Set `mode: paper` (or `live`) again when done.
 
+   To test every order path in one minute: `python C:\kalshibot\app\kb.py C:\kalshibot\jitesh apitest`
+   (place, list, cancel, buy 1, sell 1, restart check; PASS/FAIL per step).
+
 ## 9. Going live (real money)
+
+**First move money to exchange index 2** on kalshi.com (account settings → exchange indexes, a manual transfer or a target
+allocation). Kalshi holds money per shard; BTC and gold markets are on shard 2, and the bot's orders are refused if shard 2
+is empty even when your account has money on shard 0. The bot checks this at start and warns on the dashboard.
+
 
 Only after a few days of paper trading look right. For one bot at a time, open its `config.yaml` (e.g.
 `C:\kalshibot\jitesh\btc\config.yaml`) in Notepad, and under `risk:`:

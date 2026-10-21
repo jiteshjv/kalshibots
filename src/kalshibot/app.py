@@ -163,6 +163,8 @@ class App:
     def meta(self) -> dict:
         err = getattr(self.btc, "last_error", "")
         feed = {"price_feed": err} if err else {}
+        if getattr(self, "shard_note", None):
+            feed["account"] = self.shard_note
         return {**feed, "mode": self.s.risk.mode, "state": self.state_name(), **self.live_line(), "schedule": self.schedule(), "series": self.s.strategy.series, "market": self.current.market.ticker if self.current else None,
                 "risk": self.risk.stats() if hasattr(self.risk, "stats") else {}, "updated": time.time()}
 
@@ -455,6 +457,25 @@ class App:
         p = self.risk.calendar_path() if hasattr(self.risk, "calendar_path") else self.data / self.s.risk.news_calendar
         self._cal_info = await asyncio.to_thread(newscal.update, p)
 
+    def _check_shard_funds(self) -> None:
+        """Kalshi holds money per exchange shard; BTC / gold markets are on shard 2 (crypto + commodities). An order is
+        refused ('insufficient_shard_balance') if that shard has no money, even when the account has some elsewhere."""
+        try:
+            b = self.rest.request("GET", "/portfolio/balance", auth=True)
+            xi = self.rest.exchange_index
+            per = {int(x["exchange_index"]): float(x["balance"]) for x in b.get("balance_breakdown", [])}
+            if per and per.get(xi, 0.0) <= 0:
+                where = ", ".join(str(k) for k, v in per.items() if v > 0) or "none"
+                msg = (f"no money on Kalshi exchange shard {xi} (where {self.s.strategy.series} trades); shards with money: "
+                       f"{where}. Orders will be refused. Move funds to shard {xi} on kalshi.com (exchange indexes page) "
+                       f"or set a target allocation there.")
+                self.journal.event("error", "shard_funds", msg)
+                self.alerts.error("shard_funds", msg)
+                log.error(msg)
+                self.shard_note = msg
+        except Exception as e:                               # informational: never stops the bot
+            log.warning("shard balance check: %s", e)
+
     def _hist_path(self):
         return self.data / "history_bars.npz"
 
@@ -597,6 +618,8 @@ class App:
                 self.journal.event("warn", "start_idle", msg)
                 break
         self.journal.event("info", "start", f"kalshibot starting in {mode} mode, key={'yes' if self.rest.has_key else 'no (public data only)'}")
+        if self.s.risk.mode in ("live", "demo"):
+            await asyncio.to_thread(self._check_shard_funds)
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):          # Ctrl+C / docker stop: cancel all orders, then exit
             try:

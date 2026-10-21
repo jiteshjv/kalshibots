@@ -289,6 +289,8 @@ function status(){
  const parts=[];
  if(mode)parts.push(`<span class="badge ${mode==="live"?"b-live":"b-paper"}">${esc(mode.toUpperCase())}</span>`);
  if(m.state)parts.push(`<span class="badge ${m.state==="armed"?"b-ok":"b-bad"}">${esc(m.state)}</span>`);
+ if(m.account)parts.push(`<span class="badge b-bad" title="${esc(m.account)}">account: ${esc(m.account.split(";")[0])}</span>`);
+ if(m.price_feed)parts.push(`<span class="badge b-bad" title="${esc(m.price_feed)}">price feed: ${esc(String(m.price_feed).slice(0,60))}</span>`);
  if(m.kill)parts.push(`<span class="badge b-bad">KILL SWITCH ON</span>`);
  if(HEALTH){parts.push(HEALTH.ok?`<span class="badge b-ok">running</span>`:`<span class="badge b-bad">${HEALTH.heartbeat_age_s==null?"no heartbeat":"no heartbeat for "+Math.round(HEALTH.heartbeat_age_s)+" s"}</span>`);if(HEALTH.kill&&!m.kill)parts.push(`<span class="badge b-bad">KILL FILE PRESENT</span>`);}
  if(m.realized_today_utc!=null)parts.push(`today (UTC) ${col(m.realized_today_utc)}`);

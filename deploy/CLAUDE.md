@@ -20,11 +20,11 @@ Follow INSTALL.md step by step; this file adds what you must and must not do.
 1. Check the tools: `python --version` (3.12+), `where openssl` or `C:\Program Files\Git\usr\bin\openssl.exe version`,
    `where nssm`. Install what is missing (see INSTALL.md step 1); ask before installing software.
 2. `python -m pip install websockets requests numpy pyyaml tzdata`
-3. From this folder: `python install.py --person jitesh --port 8787` and `python install.py --person wife --port 8789`.
+3. From this folder: `python install.py --person jitesh --port 8787` and `python install.py --person wife --port 8789 --no-record`.
 4. Ask the owner to put each private key file and each Key ID in place (INSTALL.md step 3). You may move a key file the
    owner points you to into the right `secrets\kalshi.pem`, and open `.env` in Notepad for them to type the Key ID.
 5. Run `--check` for each of the four bot folders. All must say `mode: paper` and `Kalshi key: OK`.
-6. In an admin shell: `python install.py --person jitesh --port 8787 --service` and the same for wife with 8789.
+6. In an admin shell: `python install.py --person jitesh --port 8787 --service` and the same for wife with 8789 and --no-record.
 7. Verify: `nssm status kalshibot-jitesh-btc` (and the other three) = SERVICE_RUNNING; each log
    (`C:\kalshibot\<person>\<bot>\logs\kalshibot.log`) shows `starting in paper mode, key=yes` and a `market KX...` line
    within a minute; each dashboard answers (`curl http://127.0.0.1:8787/health` ... 8790).

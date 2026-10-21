@@ -24,7 +24,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 
-def btc_config(size: int, port: int, data: Path) -> str:
+def btc_config(size: int, port: int, data: Path, record: bool = True) -> str:
     return f"""# BTC 15-min (KXBTC15M): the RECOMMENDED setup, {size} contract(s) per entry. Starts in PAPER mode.
 strategy:
   series: KXBTC15M
@@ -47,14 +47,14 @@ risk:
   news_after_min: 60    # ... until 60 minutes after it
 io:
   data_dir: {data.as_posix()}
-  record: true
+  record: {"true" if record else "false"}          # order book recording (every change, <= every 0.1 s, about 70 MB/day for BTC)
   dashboard_port: {port}
 # LIVE (real money): set risk.mode to live and add this line under risk:
 #   live_confirm: "I UNDERSTAND THIS TRADES REAL MONEY"
 """
 
 
-def gold_config(size: int, port: int, data: Path) -> str:
+def gold_config(size: int, port: int, data: Path, record: bool = True) -> str:
     return f"""# GOLD 15-min (KXGOLD15M): Version C + all gold filters, {size} contract(s) per entry. Starts in PAPER mode.
 # Gold price: Hyperliquid xyz:GOLD oracle (free), Swissquote as backup; Pyth if PYTH_API_KEY is set in .env.
 strategy:
@@ -79,7 +79,7 @@ risk:
   news_windows: "jobs:15:60,cpi:15:60,claims:15:60,fomc:0:60"   # NFP/CPI/claims 5:15-6:30 AM PT, FOMC 11-12 PT
 io:
   data_dir: {data.as_posix()}
-  record: true
+  record: {"true" if record else "false"}          # order book recording
   book_poll_s: 0.5
   dashboard_port: {port}
 # LIVE (real money): set risk.mode to live and add this line under risk:
@@ -103,6 +103,7 @@ def main(argv=None) -> int:
     ap.add_argument("--bots", default="btc,gold")
     ap.add_argument("--size", type=int, default=1, help="contracts per entry (1 = plumbing test, 10 ~ backtest-like)")
     ap.add_argument("--root", default=None)
+    ap.add_argument("--no-record", action="store_true", help="do not record the order book (use for the second person: same markets)")
     ap.add_argument("--service", action="store_true", help="Windows: install and start NSSM services")
     ap.add_argument("--force-config", action="store_true", help="rewrite existing config.yaml files")
     a = ap.parse_args(argv)
@@ -135,7 +136,7 @@ def main(argv=None) -> int:
         cfg = d / "config.yaml"
         port = a.port + i
         if a.force_config or not cfg.exists():
-            cfg.write_text((btc_config if b == "btc" else gold_config)(a.size, port, d / "data"))
+            cfg.write_text((btc_config if b == "btc" else gold_config)(a.size, port, d / "data", not a.no_record))
         made.append((b, d, port))
     key = person / "secrets" / "kalshi.pem"
     print(f"\nInstalled for {a.person} in {person}")

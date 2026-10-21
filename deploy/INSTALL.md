@@ -34,8 +34,10 @@ folder:
 
 ```
 python install.py --person jitesh --port 8787
-python install.py --person wife   --port 8789
+python install.py --person wife   --port 8789 --no-record
 ```
+
+(`--no-record`: her bots trade the same markets as yours, so only your bots record the order book.)
 
 This creates `C:\kalshibot\app` (the code), `C:\kalshibot\jitesh\{btc,gold}` and `C:\kalshibot\wife\{btc,gold}`.
 Running it again later (e.g. with a newer zip) refreshes the code and the news calendar but never touches keys,
@@ -70,7 +72,7 @@ In an **admin** PowerShell, from the unzipped folder:
 
 ```
 python install.py --person jitesh --port 8787 --service
-python install.py --person wife   --port 8789 --service
+python install.py --person wife   --port 8789 --no-record --service
 ```
 
 This installs and starts four services (`kalshibot-jitesh-btc`, `kalshibot-jitesh-gold`, `kalshibot-wife-btc`,

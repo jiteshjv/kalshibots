@@ -357,9 +357,11 @@ class Strategy:
                 return out + self._skip_cancels()
             out += r
 
-        # TP: one resting sell per open lot
+        # TP: one resting sell per open lot, once its buy has filled (live: Kalshi confirms a market buy's fill a moment
+        # later; a sell placed before that is refused by the broker's reduce-only check)
+        unfilled = {o.lot_id for o in self.orders.values() if o.kind == "market_buy" and o.active and o.filled == 0}
         for L in self.open_lots():
-            if L.lot_id not in self.tp_of:
+            if L.lot_id not in self.tp_of and L.lot_id not in unfilled:
                 it = self._intent("limit_sell", L.side, L.qty, c.take_profit, L.lot_id, "tp", s)
                 self.tp_of[L.lot_id] = it.client_id
                 out.append(it)

@@ -165,3 +165,16 @@ def test_fair_value_stop_triggers_before_the_bid_and_skips_the_recheck():
     st2.start_market(st.market); st2.lots = [Lot(lot_id="L1", ticker="KXBTC15M-TEST", side="n", qty=100, buy=0.96, fee_in=0.1, stop=0.72, entry_ts=OP + 300)]
     st2.side, st2.lastp = "n", 0.90
     assert not [i for i in st2.step(view(600, mny=0.0001, mark_y=0.10, bid_n=0.90, ask_n=0.91)) if i.kind == "market_sell"]
+
+
+def test_take_profit_waits_for_the_market_buy_fill():
+    from kalshibot.types import Fill
+    from test_strategy import make, view
+    from kalshibot.config import StrategyCfg
+    st, _ = make(StrategyCfg(limit_offset=0, sizing="equal", size_late=1))
+    out = st.step(view(120, mny=0.003, ask_y=0.90))
+    buy = [i for i in out if i.kind == "market_buy"]
+    assert buy and not [i for i in out if i.kind == "limit_sell"]
+    assert not [i for i in st.step(view(121, mny=0.003, ask_y=0.90)) if i.kind == "limit_sell"]   # fill not confirmed yet
+    st.on_fill(Fill(client_id=buy[0].client_id, side="y", action="buy", price=0.90, qty=1, fee=0.01, ts=OP + 121, maker=False))
+    assert [i.kind for i in st.step(view(122, mny=0.003, ask_y=0.90)) if i.kind == "limit_sell"] == ["limit_sell"]

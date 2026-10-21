@@ -154,7 +154,8 @@ def test_expiry_cancel_and_market_fallback():
     bid, = st.step(view(120))
     assert st.step(view(129)) == []
     out = st.step(view(130, ask_y=0.93))
-    assert kinds(out) == ["cancel", "market_buy", "limit_buy", "limit_sell"]   # same check places a new bid
+    assert kinds(out) == ["cancel", "market_buy", "limit_buy"]   # same check places a new bid; the 99.7c sell waits
+    #                                                               for the market buy's fill
     assert out[0].client_id == bid.client_id
     assert (out[1].qty, out[1].price, out[1].side) == (200, 0.985, "y")
     L, = st.lots
@@ -163,6 +164,7 @@ def test_expiry_cancel_and_market_fallback():
     assert st.pending == out[2].client_id and len(st.lots) == 1
     fill(st, out[1], price=0.931, s=131, maker=False)  # reconcile with the real fill
     assert L.buy == 0.931 and L.fee_in == taker_fee(0.931, 200)
+    assert kinds(st.step(view(131))) == ["limit_sell"]  # now the 99.7c sell goes out
 
 
 def test_fallback_needs_ask_below_cap():
@@ -177,7 +179,7 @@ def test_fallback_unfilled_market_buy_is_undone():
     out = st.step(view(130))
     st.on_order_done(out[1].client_id, "cancelled")
     assert st.lots == [] and st.side is None
-    assert kinds(st.step(view(131))) == ["cancel"]     # the TP of the phantom lot
+    assert kinds(st.step(view(131))) == []             # no 99.7c sell was ever placed for the unfilled buy
 
 
 def test_no_fallback_when_disabled():
@@ -188,7 +190,10 @@ def test_no_fallback_when_disabled():
 
 def test_market_entries_when_no_offset():
     st, _ = make(StrategyCfg(limit_offset=0.0))
-    assert kinds(st.step(view(120))) == ["market_buy", "limit_sell"]
+    out = st.step(view(120))
+    assert kinds(out) == ["market_buy"]
+    fill(st, out[0], s=121, maker=False)
+    assert kinds(st.step(view(121))) == ["limit_sell"]
 
 
 # ------------------------------------------------------------------------------------------------ stops

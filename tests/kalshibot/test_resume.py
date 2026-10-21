@@ -147,3 +147,18 @@ def test_demo_mode_uses_the_demo_exchange_and_the_real_order_code(tmp_path, monk
     assert app.feed.url == DEMO_WS and app.btc.rest is None
     s2 = Settings(); s2.risk.mode = "live"; s2.io.data_dir = str(tmp_path / "x")
     assert not live_mode_ok(s2.risk)[0]                                  # live still needs the phrase
+
+
+def test_backup_copies_finished_files_and_deletes_old_ones_only_after_copying(tmp_path):
+    import os
+    from kalshibot.backup import backup
+    rec = tmp_path / "data" / "rec" / "2026-10-20"
+    rec.mkdir(parents=True)
+    now = 1_792_600_000
+    for name, age in (("05.jsonl.gz", 40 * 86400), ("06.jsonl.gz", 3600), ("07.jsonl.gz", 30)):
+        p = rec / name; p.write_bytes(b"x" * 100); os.utime(p, (now - age, now - age))
+    r = backup(tmp_path / "data", tmp_path / "bk", keep_days=30, now=now)
+    assert r["copied"] == 2 and r["skipped"] == 1 and r["deleted"] == 1      # the file still being written is left
+    assert sorted(p.name for p in (tmp_path / "bk" / "2026-10-20").iterdir()) == ["05.jsonl.gz", "06.jsonl.gz"]
+    assert not (rec / "05.jsonl.gz").exists() and (rec / "06.jsonl.gz").exists()
+    assert backup(tmp_path / "data", tmp_path / "bk", now=now)["copied"] == 0  # nothing new

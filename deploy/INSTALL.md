@@ -144,5 +144,42 @@ edge – it is a plumbing test. 10 contracts per entry behaves like the backtest
 
 ## Updating
 
-Copy the new `kalshibot-install.zip` to the VPS, unzip, and run the two `install.py` lines again, then
-`nssm restart` each service. Keys, settings and history are kept.
+Copy the new `kalshibot-install.zip` to the VPS, unzip it, and from that folder run (admin PowerShell):
+
+```
+python install.py --update
+```
+
+It replaces the code and the news calendar of every installed bot and restarts their services. Keys, `.env`, configs,
+dashboard settings, journals and recordings are not touched.
+
+## Backups of the order-book recordings
+
+Your bots record the order book (about 70 MB a day for BTC) in `<bot>\data\rec\<date>\<hour>.jsonl.gz`. To copy them
+somewhere safe every night and keep only 30 days on the VPS (change `D:\kalshibot-backup` to your backup folder, e.g. a
+second disk, a network share or a OneDrive folder):
+
+```
+schtasks /create /tn kalshibot-backup /sc daily /st 03:00 /ru SYSTEM /tr "python C:\kalshibot\app\kb.py C:\kalshibot\jitesh backup --pair C:\kalshibot\jitesh\btc\data D:\kalshibot-backup\jitesh-btc --pair C:\kalshibot\jitesh\gold\data D:\kalshibot-backup\jitesh-gold --keep-days 30"
+```
+
+Run it once by hand to check: `schtasks /run /tn kalshibot-backup`. Files still being written are skipped, and a local
+file is only deleted once the same file is in the backup.
+
+## Telegram alerts (recommended)
+
+The bots message you on start/stop, stop-outs, errors, the kill switch and a daily summary.
+
+1. In Telegram, message **@BotFather**, send `/newbot`, follow the prompts; it gives you a **bot token**.
+2. Message your new bot once (say "hi"), then open
+   `https://api.telegram.org/bot<token>/getUpdates` in a browser; your **chat id** is the number after `"chat":{"id":`.
+3. In `C:\kalshibot\jitesh\.env` fill `TELEGRAM_BOT_TOKEN=` and `TELEGRAM_CHAT_ID=` (your wife can use her own bot, or
+   the same token with her chat id).
+4. Test: `python C:\kalshibot\app\kb.py C:\kalshibot\jitesh alerts test` – a message should arrive.
+5. Restart the bots (`python install.py --update`, or `nssm restart` each).
+6. Optional watchdog (messages you if a bot stops or hangs), one per bot:
+   ```
+   nssm install kalshibot-jitesh-btc-watch "C:\Program Files\Python312\python.exe" C:\kalshibot\app\kb.py C:\kalshibot\jitesh alerts watch --data-dir C:\kalshibot\jitesh\btc\data --max-age 90
+   nssm start kalshibot-jitesh-btc-watch
+   ```
+   (use the path `where python` prints).

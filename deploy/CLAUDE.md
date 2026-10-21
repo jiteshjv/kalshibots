@@ -30,6 +30,10 @@ Follow INSTALL.md step by step; this file adds what you must and must not do.
    within a minute; each dashboard answers (`curl http://127.0.0.1:8787/health` ... 8790).
 8. Remind the owner about Windows Update active hours (INSTALL.md step 7).
 
+## Updating to a new zip
+Unzip it and run `python install.py --update` from it (admin shell): it refreshes the code + calendar of all installed bots
+and restarts their services; nothing else changes. Then check each log shows a fresh `starting in ... mode` line.
+
 ## Troubleshooting
 - `openssl not found`: install Git for Windows; run.py looks in `C:\Program Files\Git\usr\bin` automatically.
 - `Kalshi key: FAILED ... INCORRECT_API_KEY_SIGNATURE`: the key file does not match the Key ID (often a different key

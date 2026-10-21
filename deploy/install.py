@@ -98,10 +98,45 @@ TELEGRAM_CHAT_ID=
 """
 
 
+def copy_code(root: Path) -> Path:
+    """Shared code: <root>/app/src/kalshibot + run.py + kb.py (always replaced by the bundle's)."""
+    app = root / "app"
+    if (app / "src" / "kalshibot").exists():
+        shutil.rmtree(app / "src" / "kalshibot")
+    shutil.copytree(HERE / "app" / "src" / "kalshibot", app / "src" / "kalshibot",
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    for f in ("run.py", "kb.py"):
+        shutil.copy2(HERE / "app" / f, app / f)
+    return app
+
+
+def update(root: Path) -> int:
+    """New version: refresh the code and news calendar for every installed bot, then restart their services."""
+    bots = sorted(p.parent for p in root.glob("*/*/config.yaml") if p.parent.parent.name != "app")
+    if not bots:
+        print(f"no bots installed under {root}")
+        return 1
+    copy_code(root)
+    for d in bots:
+        (d / "data").mkdir(exist_ok=True)
+        shutil.copy2(HERE / "news_calendar.csv", d / "data" / "news_calendar.csv")
+    print(f"code updated in {root / 'app'}; calendar refreshed for {len(bots)} bots")
+    for d in bots:
+        name = f"kalshibot-{d.parent.name}-{d.name}"
+        if os.name == "nt" and shutil.which("nssm"):
+            r = subprocess.run(["nssm", "restart", name], capture_output=True, text=True)
+            print(f"  {name}: {'restarted' if r.returncode == 0 else 'restart FAILED: ' + (r.stdout + r.stderr).strip()[:200]}")
+        else:
+            print(f"  {name}: restart it yourself (no nssm here)")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--person", required=True, help="folder name for this person, e.g. jitesh")
-    ap.add_argument("--port", type=int, required=True, help="dashboard port of the first bot (the next bot gets +1)")
+    ap.add_argument("--person", help="folder name for this person, e.g. jitesh")
+    ap.add_argument("--port", type=int, help="dashboard port of the first bot (the next bot gets +1)")
+    ap.add_argument("--update", action="store_true", help="refresh the code + calendar of EVERY installed bot and restart "
+                                                          "its service (keys, .env, settings, data, configs untouched)")
     ap.add_argument("--bots", default="btc,gold")
     ap.add_argument("--size", type=int, default=1, help="contracts per entry (1 = plumbing test, 10 ~ backtest-like)")
     ap.add_argument("--root", default=None)
@@ -110,17 +145,15 @@ def main(argv=None) -> int:
     ap.add_argument("--force-config", action="store_true", help="rewrite existing config.yaml files")
     a = ap.parse_args(argv)
     root = Path(a.root or (r"C:\kalshibot" if os.name == "nt" else "~/kalshibot")).expanduser()
+    if a.update:
+        return update(root)
+    if not a.person or a.port is None:
+        ap.error("--person and --port are needed (or --update)")
     bots = [b.strip() for b in a.bots.split(",") if b.strip()]
     for b in bots:
         if b not in ("btc", "gold"):
             ap.error(f"unknown bot {b!r} (btc, gold)")
-    # shared code
-    app = root / "app"
-    if (app / "src" / "kalshibot").exists():
-        shutil.rmtree(app / "src" / "kalshibot")
-    shutil.copytree(HERE / "app" / "src" / "kalshibot", app / "src" / "kalshibot",
-                    ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copy2(HERE / "app" / "run.py", app / "run.py")
+    app = copy_code(root)
     # person
     person = root / a.person
     (person / "secrets").mkdir(parents=True, exist_ok=True)

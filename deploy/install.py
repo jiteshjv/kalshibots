@@ -67,8 +67,8 @@ strategy:
   filters: true         # 2-day+ sweep filter ...
   sweep_4h_m60: 1.0     # ... the BTC 4h rule is off for gold
   skip_hours_pt: "7-9"  # skip markets starting 7:00-8:59 AM PT
-  mny_start: 0.00132    # Version C: 0.132% at minute 2 ...
-  mny_floor: 0.00044    # ... to 0.044% by minute 15
+  mny_start: 0.00115    # 0.115% at minute 2 ... (2026-10-20: backtest +32% vs Version C's 0.132% -> 0.044%)
+  mny_floor: 0.00030    # ... to 0.030% by minute 15
   stop_pct: 0.20        # stop 20% below the buy price AND gold within 0.01% of the strike
   stop_lead: 0.0001
   take_profit: 0.999    # resting sell at 99.9c
@@ -111,13 +111,42 @@ def copy_code(root: Path) -> Path:
     return app
 
 
-def update(root: Path) -> int:
+def apply_sets(bots: list[Path], sets: list[str]) -> int:
+    """--set btc:strategy.stop_fair=true -> each matching bot's data/settings.json (what the dashboard saves)."""
+    sys.path.insert(0, str(HERE / "app" / "src"))
+    from kalshibot import settings_store
+    want: dict[str, dict] = {}
+    for item in sets:
+        kind, _, kv = item.partition(":")
+        key, _, val = kv.partition("=")
+        if kind not in ("btc", "gold", "all") or not key or not _:
+            print(f"bad --set {item!r} (use btc|gold|all:section.name=value)")
+            return 2
+        clean, errs = settings_store.validate({key.strip(): val.strip()})
+        if errs:
+            print("; ".join(errs))
+            return 2
+        want.setdefault(kind, {}).update(clean)
+    for d in bots:
+        ch = {**want.get("all", {}), **want.get(d.name, {})}
+        if not ch:
+            continue
+        cur = settings_store.load(d / "data")
+        cur.update(ch)
+        settings_store.save(d / "data", cur)
+        print(f"  {d.parent.name}/{d.name}: saved {', '.join(f'{k}={v}' for k, v in ch.items())}")
+    return 0
+
+
+def update(root: Path, sets: list[str] = ()) -> int:
     """New version: refresh the code and news calendar for every installed bot, then restart their services."""
     bots = sorted(p.parent for p in root.glob("*/*/config.yaml") if p.parent.parent.name != "app")
     if not bots:
         print(f"no bots installed under {root}")
         return 1
     copy_code(root)
+    if sets and apply_sets(bots, list(sets)):
+        return 2
     for d in bots:
         (d / "data").mkdir(exist_ok=True)
         shutil.copy2(HERE / "news_calendar.csv", d / "data" / "news_calendar.csv")
@@ -136,6 +165,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--person", help="folder name for this person, e.g. jitesh")
     ap.add_argument("--port", type=int, help="dashboard port of the first bot (the next bot gets +1)")
+    ap.add_argument("--set", action="append", default=[], metavar="BOT:KEY=VALUE",
+                    help="with --update: save a setting on every installed bot of that kind (btc / gold / all), like the "
+                         "dashboard Settings page, e.g. gold:strategy.mny_start=0.115 (display units: %% and cents)")
     ap.add_argument("--update", action="store_true", help="refresh the code + calendar of EVERY installed bot and restart "
                                                           "its service (keys, .env, settings, data, configs untouched)")
     ap.add_argument("--bots", default="btc,gold")
@@ -147,7 +179,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     root = Path(a.root or (r"C:\kalshibot" if os.name == "nt" else "~/kalshibot")).expanduser()
     if a.update:
-        return update(root)
+        return update(root, a.set)
     if not a.person or a.port is None:
         ap.error("--person and --port are needed (or --update)")
     bots = [b.strip() for b in a.bots.split(",") if b.strip()]

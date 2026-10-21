@@ -32,7 +32,8 @@ Follow INSTALL.md step by step; this file adds what you must and must not do.
 
 ## Updating to a new zip
 Unzip it and run `python install.py --update` from it (admin shell): it refreshes the code + calendar of all installed bots
-and restarts their services; nothing else changes. Then check each log shows a fresh `starting in ... mode` line.
+and restarts their services; nothing else changes. If INSTALL.md's "Updating" section lists `--set` changes for this
+version, include them in that command (they only touch settings.json, like the dashboard). Then check each log shows a fresh `starting in ... mode` line.
 
 ## Troubleshooting
 - `openssl not found`: install Git for Windows; run.py looks in `C:\Program Files\Git\usr\bin` automatically.

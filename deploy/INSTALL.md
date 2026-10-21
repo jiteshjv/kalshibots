@@ -153,6 +153,17 @@ python install.py --update
 It replaces the code and the news calendar of every installed bot and restarts their services. Keys, `.env`, configs,
 dashboard settings, journals and recordings are not touched.
 
+To change settings on all bots of one kind at the same time (saved like the dashboard's Settings page), add `--set`:
+
+```
+python install.py --update --set gold:strategy.mny_start=0.115 --set gold:strategy.mny_floor=0.030 --set btc:strategy.stop_fair=true
+```
+
+(`btc`, `gold` or `all`; values in the dashboard's units: % and cents.)
+
+**Update of 2026-10-20 (run once on bots installed before it):** the command above. It moves gold to 0.115% → 0.030%
+moneyness (backtest +32%) and turns on the BTC fair-value stop (backtest +$7.7K). New installs already have both.
+
 ## Backups of the order-book recordings
 
 Your bots record the order book (about 70 MB a day for BTC) in `<bot>\data\rec\<date>\<hour>.jsonl.gz`. To copy them

@@ -32,6 +32,8 @@ class StrategyCfg:
     take_profit: float = 0.997           # resting sell for everything open at 99.7c
     roll: bool = True                    # after a full stop-out, may enter the other side
     stop_recheck: bool = False           # sell a triggered stop only if our side's bid is still <= that entry's stop price
+    stop_fair: bool = False              # also trigger the stop when our side's FAIR VALUE (from BTC) is <= the stop price
+                                         # (sells before Kalshi's bid catches up; backtest +$7.7K, Jun 1 - Oct 19)
     skip_hours_pt: str = ""              # skip whole markets whose window starts in these Pacific hours, e.g. "7-9" or
                                          # "7-9,13-14" (start hour inclusive, end hour exclusive); "" = none
     jump_pause: float = 0.0              # >0: no new entries while any clock minute in the last 15 moved more than this

@@ -108,6 +108,7 @@ class Strategy:
         self._reset()
         self.market = m
         self.lots = []
+        self.sigma = self._sigma(m.open_ts) if self.cfg.stop_fair else None
         r = self.history.range_2h(m.open_ts)
         self.range2h = r
         if r is None or r != r:
@@ -148,6 +149,45 @@ class Strategy:
             self.orders[cid] = _Order(cid, "limit_sell", L.side, qty, px, lot_id, "tp", 0)
             self.tp_of[lot_id] = cid
         self.no_entries = self.no_entries or no_entries
+
+    # ------------------------------------------------------------------ fair value (stop_fair)
+    def _sigma(self, open_ts: float) -> float | None:
+        """Realized 1-second log-return volatility over the 30 minutes before the open (backtest her_trades.sig_at);
+        from 1-minute closes / sqrt(60) when per-second prices are missing."""
+        import numpy as np
+        a, b = int(open_ts) - 1800, int(open_ts)
+        seg = self.history._sec_slice(a, b)
+        if len(seg) and np.isfinite(seg).sum() > 600:
+            with np.errstate(all="ignore"):
+                r = np.diff(np.log(seg))
+            v = float(np.nanstd(r))
+            if v == v and v > 0:
+                return v
+        closes = [self.history.price_at(t, max_age=120) for t in range(a, b + 1, 60)]
+        closes = [c for c in closes if c]
+        if len(closes) >= 10:
+            r = np.diff(np.log(closes))
+            return float(np.std(r)) / math.sqrt(60) or None
+        return None
+
+    def fair_yes(self, ts: float, price: float) -> float | None:
+        """P(final 60-second average >= strike) for a random walk with self.sigma; inside the last minute the
+        seconds already observed are locked into the average."""
+        m, sg = self.market, getattr(self, "sigma", None)
+        if m is None or not sg or price != price:
+            return None
+        u = int(ts - m.open_ts)
+        left = 899 - u
+        w60 = sum((k / 60) ** 2 for k in range(1, 61))
+        if left >= 60:
+            mu, var = price, (left - 59) + w60
+        else:
+            seen = [self.history.price_at(m.open_ts + s, max_age=2) for s in range(840, u + 1)]
+            seen = [p for p in seen if p is not None]
+            mu = (sum(seen) + price * (60 - len(seen))) / 60
+            var = sum((k / 60) ** 2 for k in range(1, max(left, 0) + 1))
+        sd = sg * price * math.sqrt(max(var, 1e-9))
+        return 0.5 * (1 + math.erf((mu - m.strike) / (sd * math.sqrt(2))))
 
     def end_market(self, yes_won: bool) -> list[Lot]:
         """Settle every open lot at $1/$0 (no fee). Resting orders are the broker's to cancel."""
@@ -285,11 +325,16 @@ class Strategy:
         if self.side and lots and self.lastp is not None and v.btc is not None:
             K = self.market.strike
             lead = (v.btc.price - K) / K * (1 if self.side == "y" else -1)
-            hit = [L for L in lots if self.lastp <= L.stop and lead < c.stop_lead]
+            fv = None
+            if c.stop_fair:
+                fy = self.fair_yes(v.ts, v.btc.price)
+                fv = None if fy is None else (fy if self.side == "y" else 1 - fy)
+            hit = [L for L in lots if (self.lastp <= L.stop or (fv is not None and fv <= L.stop)) and lead < c.stop_lead]
             if hit:
                 b = v.bid.get(self.side)
                 if b is not None and c.stop_recheck:           # re-check: skip lots whose bid recovered above their stop
-                    hit = [L for L in hit if b <= L.stop + _EPS]
+                    hit = [L for L in hit if b <= L.stop + _EPS or (fv is not None and fv <= L.stop)]   # fair-value
+                    #   triggers are not re-checked against the bid: the point is to sell before the bid catches up
                 if b is not None and hit:
                     for L in hit:
                         tp = self.tp_of.get(L.lot_id)

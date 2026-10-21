@@ -136,3 +136,32 @@ def test_sweep_3_to_14_day_rule():
     assert strat(b).skip_reason(t, "y", 102.5) is None
     c = base.copy(); c[n - 2 * 86400] = 101.0; c[-200:] = 101.5      # only a 2-day high -> not skipped (sweep_days 3)
     assert strat(c).skip_reason(t, "y", 101.5) is None
+
+
+def test_fair_value_stop_triggers_before_the_bid_and_skips_the_recheck():
+    import math
+    import numpy as np
+    from kalshibot.config import StrategyCfg
+    from kalshibot.history import BtcHistory
+    from kalshibot.strategy import Strategy
+    from kalshibot.types import Lot
+    from test_strategy import K, OP, T0, view
+    rng = np.random.default_rng(1)
+    a = K * np.exp(np.cumsum(rng.normal(0, 0.0001, 4 * 86400)))      # ~0.01%/s vol history
+    a[OP - T0:] = K
+    cfg = StrategyCfg(stop_pct=0.25, stop_lead=0.0003, stop_recheck=True, stop_fair=True)
+    st = Strategy(cfg, BtcHistory.from_array(T0, a))
+    st.start_market(__import__("kalshibot.types", fromlist=["MarketInfo"]).MarketInfo("KXBTC15M-TEST", float(OP), float(OP + 900), K))
+    assert st.sigma and abs(st.sigma - 0.0001) / 0.0001 < 0.2
+    # backtest formula (her_trades.fair_yes) at 5 minutes left, BTC 0.01% above the strike
+    p = K * 1.0001; left = 899 - 600; w60 = sum((k / 60) ** 2 for k in range(1, 61))
+    want = 0.5 * (1 + math.erf((p - K) / (st.sigma * p * math.sqrt(left - 59 + w60) * math.sqrt(2))))
+    assert abs(st.fair_yes(OP + 600, p) - want) < 1e-9
+    st.lots = [Lot(lot_id="L1", ticker="KXBTC15M-TEST", side="n", qty=100, buy=0.96, fee_in=0.1, stop=0.72, entry_ts=OP + 300)]
+    st.side, st.lastp = "n", 0.90                                 # NO bid still 90c (above the 72c stop) ...
+    out = st.step(view(600, mny=0.0001, mark_y=0.10, bid_n=0.90, ask_n=0.91))   # ... but fair NO ~ 0.5 < 0.72
+    assert [i.kind for i in out if i.lot_id == "L1"].count("market_sell") == 1
+    st2 = Strategy(StrategyCfg(stop_pct=0.25, stop_lead=0.0003, stop_recheck=True, stop_fair=False), BtcHistory.from_array(T0, a))
+    st2.start_market(st.market); st2.lots = [Lot(lot_id="L1", ticker="KXBTC15M-TEST", side="n", qty=100, buy=0.96, fee_in=0.1, stop=0.72, entry_ts=OP + 300)]
+    st2.side, st2.lastp = "n", 0.90
+    assert not [i for i in st2.step(view(600, mny=0.0001, mark_y=0.10, bid_n=0.90, ask_n=0.91)) if i.kind == "market_sell"]

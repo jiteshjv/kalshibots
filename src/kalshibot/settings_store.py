@@ -29,6 +29,7 @@ SPEC = [
     ("strategy", "stop_pct", "pct", 1, 100, "Stop: % below the buy price", "e.g. 25"),
     ("strategy", "stop_lead", "pct", 0, 1, "Stop: price within this % of the strike", "e.g. 0.03"),
     ("strategy", "stop_recheck", "bool", None, None, "Stop: re-check the bid before selling", ""),
+    ("strategy", "stop_fair", "bool", None, None, "Stop: also trigger on fair value", "sell when BTC's fair value for our side is below the stop price, before the bid catches up"),
     ("strategy", "take_profit", "cents", 50, 100, "Take-profit sell (c)", "resting sell price, e.g. 99.7"),
     ("strategy", "max_range_2h", "pct", 0, 50, "Skip if the 2-hour range is above (%)", ""),
     ("strategy", "jump_pause", "pct", 0, 10, "Jump pause: 1-minute move above (%)", "0 = off"),

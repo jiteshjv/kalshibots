@@ -212,6 +212,15 @@ def extract_brti(data: Any) -> tuple[float, float]:
     pkeys = ("value", "price", "rate", "indexValue", "index_value")
     tkeys = ("time", "timestamp", "serverTime", "publishedAt", "published_at")
     env_t = next((it[k] for it in cands for k in tkeys if k in it), None)
+
+    def as_ts(rt: Any) -> float:
+        if rt is None:
+            return time.time()
+        if isinstance(rt, (int, float)):
+            return rt / 1000.0 if rt > 10_000_000_000 else float(rt)
+        return iso_ts(str(rt))
+
+    best: tuple[float, float] | None = None              # the NEWEST value: Kalshi returns the last hour, oldest first
     for it in cands:
         pv = next((it[k] for k in pkeys if k in it), None)
         if pv is None:
@@ -220,14 +229,11 @@ def extract_brti(data: Any) -> tuple[float, float]:
             price = float(pv)
         except (TypeError, ValueError):
             continue
-        rt = next((it[k] for k in tkeys if k in it), env_t)
-        if rt is None:
-            ts = time.time()
-        elif isinstance(rt, (int, float)):
-            ts = rt / 1000.0 if rt > 10_000_000_000 else float(rt)
-        else:
-            ts = iso_ts(str(rt))
-        return ts, price
+        ts = as_ts(next((it[k] for k in tkeys if k in it), env_t))
+        if best is None or ts > best[0]:
+            best = (ts, price)
+    if best is not None:
+        return best
     raise KalshiError("no numeric BRTI value in CF Benchmarks response")
 
 

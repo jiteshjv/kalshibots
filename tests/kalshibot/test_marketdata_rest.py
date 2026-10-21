@@ -213,3 +213,12 @@ def test_extract_brti_shapes():
         == (1792432200.0, 108000.5)
     ts, p = extract_brti({"serverTime": "2026-10-19T17:50:00Z", "payload": {"value": 1}})
     assert p == 1.0 and ts == pytest.approx(1792432200.0)
+
+
+def test_extract_brti_takes_the_newest_of_kalshis_hour_of_values():
+    import time as _t
+    now = int(_t.time() * 1000)
+    data = {"serverTime": "2026-10-21T01:15:52.566Z",
+            "payload": [{"value": str(83000 + i), "time": now - (3599 - i) * 1000} for i in range(3600)]}
+    ts, px = extract_brti(data)
+    assert px == 86599.0 and abs(ts - now / 1000) < 1e-6

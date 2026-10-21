@@ -345,7 +345,10 @@ class BtcFeed:
             try:
                 ts, p = await asyncio.to_thread(self.rest.brti)
                 now = self.clock()
-                self.set_brti(ts if abs(ts - now) < 60 else now, p)
+                if ts > now + 60:                          # clock skew the other way: trust the value as current
+                    ts = now
+                if now - ts <= self.brti_max_age:          # an old value is never relabelled as current
+                    self.set_brti(ts, p)
                 interval = self.brti_interval
             except KalshiError as e:
                 self.brti_errors += 1

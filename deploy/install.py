@@ -34,6 +34,7 @@ strategy:
   stop_pct: 0.25        # stop an entry 25% below its buy price ...
   stop_lead: 0.0003     # ... AND BTC within 0.03% of the strike
   stop_recheck: true
+  stop_fair: true       # also stop when BTC's fair value for our side is below the stop price (backtest +$7.7K)
   jump_pause: 0.005     # no new entries for 15 min after a 1-minute BTC move above 0.5%
   sweep_days: 3         # skip only after a break of a 3- to 14-day high/low on our side
   sweep_max_days: 30

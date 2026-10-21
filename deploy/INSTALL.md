@@ -105,7 +105,22 @@ On each dashboard:
 Settings → Windows Update → Advanced options → **Active hours**: set them to cover your trading hours (or pause updates).
 The bots come back by themselves after a reboot, but a reboot during a market leaves positions unwatched for a minute.
 
-## 8. Going live (real money)
+## 8. Demo test: real orders, fake money (recommended before live)
+
+Kalshi runs a demo exchange with fake money and the same markets. In demo mode the bot uses its real order code there,
+so you can watch real orders, fills, stops and take-profit sells without risking money.
+
+1. Make a free account at https://demo.kalshi.co and create an API key there (Account → API Keys). It is separate from
+   your real key and only works on demo.
+2. Save its key file as `C:\kalshibot\jitesh\secrets\kalshi-demo.pem` and put its Key ID after `KALSHI_DEMO_API_KEY_ID=`
+   in `C:\kalshibot\jitesh\.env`.
+3. In one bot's `config.yaml` set `mode: demo` under `risk:`, run `python C:\kalshibot\app\run.py C:\kalshibot\jitesh\btc --check`
+   (it should say `Kalshi DEMO key: OK`), then `nssm restart kalshibot-jitesh-btc`.
+4. Compare the dashboard with your demo Portfolio page on demo.kalshi.co. Demo order books are thin and its prices are
+   not the real market's, so treat demo as a test of the plumbing, not of the strategy.
+5. Set `mode: paper` (or `live`) again when done.
+
+## 9. Going live (real money)
 
 Only after a few days of paper trading look right. For one bot at a time, open its `config.yaml` (e.g.
 `C:\kalshibot\jitesh\btc\config.yaml`) in Notepad, and under `risk:`:

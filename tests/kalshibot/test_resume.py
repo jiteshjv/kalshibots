@@ -124,3 +124,26 @@ def test_next_market_ticker_for_recording():
     c = _dt.datetime(2026, 10, 20, 23, 45, tzinfo=ZoneInfo("America/New_York")).timestamp()   # crosses midnight
     assert next_ticker("KXBTC15M", c) == "KXBTC15M-26OCT210000-00"
     assert next_ticker("KXGOLD15M", c - 900) == "KXGOLD15M-26OCT202345-45"
+
+
+def test_demo_mode_uses_the_demo_exchange_and_the_real_order_code(tmp_path, monkeypatch):
+    import pytest
+    from kalshibot.config import DEMO_REST, DEMO_WS
+    from kalshibot.execution.live import LiveBroker
+    from kalshibot.risk import live_mode_ok
+    s = Settings()
+    s.risk.mode, s.io.data_dir, s.io.dashboard_port = "demo", str(tmp_path), 0
+    assert live_mode_ok(s.risk)[0]                                       # no confirmation phrase needed for demo
+    monkeypatch.setenv("KALSHI_API_KEY_ID", "real-key")                  # a REAL key alone must not be used for demo
+    monkeypatch.setenv("KALSHI_PRIVATE_KEY_PATH", str(tmp_path / "real.pem"))
+    monkeypatch.delenv("KALSHI_DEMO_API_KEY_ID", raising=False)
+    with pytest.raises(SystemExit):
+        App(s)
+    (tmp_path / "demo.pem").write_text("x")
+    monkeypatch.setenv("KALSHI_DEMO_API_KEY_ID", "demo-key")
+    monkeypatch.setenv("KALSHI_DEMO_PRIVATE_KEY_PATH", str(tmp_path / "demo.pem"))
+    app = App(s)
+    assert app.rest.base_url == DEMO_REST and app.rest.key_id == "demo-key" and isinstance(app.broker, LiveBroker)
+    assert app.feed.url == DEMO_WS and app.btc.rest is None
+    s2 = Settings(); s2.risk.mode = "live"; s2.io.data_dir = str(tmp_path / "x")
+    assert not live_mode_ok(s2.risk)[0]                                  # live still needs the phrase

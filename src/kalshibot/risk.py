@@ -37,6 +37,8 @@ class LiveModeRefused(RuntimeError):
 def live_mode_ok(cfg: RiskCfg | Settings) -> tuple[bool, str]:
     """True only when mode == "live" AND live_confirm equals config.LIVE_CONFIRM_PHRASE exactly."""
     risk = cfg.risk if isinstance(cfg, Settings) else cfg
+    if risk.mode == "demo":
+        return True, ""                                   # Kalshi's demo exchange: fake money, no confirmation needed
     if risk.mode != "live":
         return False, f"risk.mode is {risk.mode!r}, not 'live'"
     if risk.live_confirm != LIVE_CONFIRM_PHRASE:
@@ -54,8 +56,8 @@ class RiskGuard:
                  open_orders: Callable[[], Any] | None = None, clock: Callable[[], float] = time.time):
         if getattr(cfg, "news_mode", "off") not in ("off", "day", "window"):
             raise ValueError(f"risk.news_mode must be 'off', 'day' or 'window', got {cfg.news_mode!r}")
-        if cfg.mode not in ("paper", "live"):
-            raise ValueError(f"risk.mode must be 'paper' or 'live', got {cfg.mode!r}")
+        if cfg.mode not in ("paper", "live", "demo"):
+            raise ValueError(f"risk.mode must be 'paper', 'live' or 'demo', got {cfg.mode!r}")
         if cfg.mode == "live":
             ok, why = live_mode_ok(cfg)
             if not ok:

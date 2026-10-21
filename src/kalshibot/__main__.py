@@ -17,7 +17,7 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     s = Settings.load(a.config)
     if a.cmd == "check":
-        key_id, key_path = kalshi_credentials()
+        key_id, key_path = kalshi_credentials(demo=s.risk.mode == "demo")
         print(json.dumps(s.to_dict(), indent=2))
         print(f"\nmode: {s.risk.mode} | live confirmed: {s.risk.live_confirm == LIVE_CONFIRM_PHRASE} | Kalshi key: {'set' if key_id and key_path else 'NOT set (public data, paper only)'}")
         print(f"data dir: {s.data_path}")

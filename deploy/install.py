@@ -39,7 +39,7 @@ strategy:
   sweep_max_days: 30
   sweep_4h_m60: 0
 risk:
-  mode: paper           # paper | live
+  mode: paper           # paper | demo (Kalshi demo exchange, fake money) | live
   daily_loss_limit: {15 * size}   # $: no new entries for the rest of the UTC day after this loss
   news_mode: window     # NFP / CPI / FOMC: no new entries from the release ...
   news_events: jobs,cpi,fomc
@@ -72,7 +72,7 @@ strategy:
   stop_lead: 0.0001
   take_profit: 0.999    # resting sell at 99.9c
 risk:
-  mode: paper           # paper | live
+  mode: paper           # paper | demo (Kalshi demo exchange, fake money) | live
   daily_loss_limit: {15 * size}
   stale_btc_s: 6.0      # gold price older than 6 s -> no new entries
   news_mode: window
@@ -89,6 +89,8 @@ io:
 
 ENV_TEMPLATE = """# {person}'s secrets (never share, never commit)
 KALSHI_API_KEY_ID=
+# Kalshi DEMO exchange key (only for mode: demo; secrets/kalshi-demo.pem)
+KALSHI_DEMO_API_KEY_ID=
 KALSHIBOT_DASH_TOKEN={token}
 # optional: Telegram alerts
 TELEGRAM_BOT_TOKEN=

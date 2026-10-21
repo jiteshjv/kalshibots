@@ -47,6 +47,9 @@ def main(argv=None) -> int:
     key = person / "secrets" / "kalshi.pem"
     if key.exists():
         os.environ["KALSHI_PRIVATE_KEY_PATH"] = str(key)
+    demo_key = person / "secrets" / "kalshi-demo.pem"          # Kalshi DEMO exchange key (mode: demo)
+    if demo_key.exists():
+        os.environ["KALSHI_DEMO_PRIVATE_KEY_PATH"] = str(demo_key)
     sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
     if not find_openssl():
         print("openssl not found: install Git for Windows (git-scm.com); it is needed to sign Kalshi requests", file=sys.stderr)
@@ -63,17 +66,20 @@ def main(argv=None) -> int:
     from kalshibot.__main__ import main as kb
     if check:
         rc = kb(["check", "--config", str(bot / "config.yaml")])
-        if os.environ.get("KALSHI_API_KEY_ID") and key.exists():
-            from kalshibot.config import kalshi_credentials
+        from kalshibot.config import DEMO_REST, Settings, kalshi_credentials
+        demo = Settings.load(str(bot / "config.yaml")).risk.mode == "demo"
+        kid, kpath = kalshi_credentials(demo=demo)
+        if kid and kpath and Path(kpath).exists():
             from kalshibot.marketdata.kalshi_rest import KalshiRest
             try:
-                KalshiRest(*kalshi_credentials()).request("GET", "/portfolio/balance", auth=True)
-                print("Kalshi key: OK (read-only balance request accepted)")
+                KalshiRest(kid, kpath, **({"base_url": DEMO_REST} if demo else {})).request("GET", "/portfolio/balance", auth=True)
+                print(f"Kalshi {'DEMO ' if demo else ''}key: OK (read-only balance request accepted)")
             except Exception as e:
                 print(f"Kalshi key: FAILED ({e})")
                 rc = 4
         else:
-            print("Kalshi key: not set up yet (.env KALSHI_API_KEY_ID and secrets/kalshi.pem)")
+            print("Kalshi key: not set up yet (.env KALSHI_API_KEY_ID and secrets/kalshi.pem"
+                  + (", or for demo KALSHI_DEMO_API_KEY_ID and secrets/kalshi-demo.pem)" if demo else ")"))
         return rc
     return kb(["run", "--config", str(bot / "config.yaml")])
 

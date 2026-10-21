@@ -49,7 +49,8 @@ class StrategyCfg:
 
 @dataclass
 class RiskCfg:
-    mode: str = "paper"                  # "paper" | "live"  (live also needs live_confirm)
+    mode: str = "paper"                  # "paper" | "live" (real money, needs live_confirm) | "demo" (real order code on
+                                         # Kalshi's DEMO exchange, fake money, demo key: KALSHI_DEMO_API_KEY_ID)
     live_confirm: str = ""               # must equal "I UNDERSTAND THIS TRADES REAL MONEY" for live mode
     daily_loss_limit: float = 1500.0     # stop opening entries for the rest of the UTC day after this loss ($)
     max_open_orders: int = 60
@@ -113,5 +114,12 @@ class Settings:
 LIVE_CONFIRM_PHRASE = "I UNDERSTAND THIS TRADES REAL MONEY"
 
 
-def kalshi_credentials() -> tuple[str | None, str | None]:
+DEMO_REST = "https://demo-api.kalshi.co/trade-api/v2"
+DEMO_WS = "wss://demo-api.kalshi.co/trade-api/ws/v2"
+
+
+def kalshi_credentials(demo: bool = False) -> tuple[str | None, str | None]:
+    """Key ID + private key path. Demo mode uses its own pair (a demo key only works on the demo exchange)."""
+    if demo:
+        return os.environ.get("KALSHI_DEMO_API_KEY_ID"), os.environ.get("KALSHI_DEMO_PRIVATE_KEY_PATH")
     return os.environ.get("KALSHI_API_KEY_ID"), os.environ.get("KALSHI_PRIVATE_KEY_PATH")

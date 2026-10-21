@@ -85,8 +85,11 @@ class App:
         applied = settings_store.apply(self.s, self._overrides)
         self.journal = Journal(self.data)
         self.alerts = Alerter.from_env(settings.io.telegram_token_env, settings.io.telegram_chat_env)
-        key_id, key_path = kalshi_credentials()
-        self.rest = KalshiRest(key_id, key_path) if key_id and key_path else KalshiRest()
+        self.demo = settings.risk.mode == "demo"             # Kalshi demo exchange (fake money) with the real order code
+        from kalshibot.config import DEMO_REST, DEMO_WS
+        key_id, key_path = kalshi_credentials(demo=self.demo)
+        kw = {"base_url": DEMO_REST} if self.demo else {}
+        self.rest = KalshiRest(key_id, key_path, **kw) if key_id and key_path else KalshiRest(**kw)
         sc = settings.strategy                   # history long enough for the longest sweep level checked (3 days minimum)
         self.hist_days = max(3.0, sc.sweep_days + 1, (sc.sweep_max_days + 1) if sc.sweep_max_days > 0 else 0)
         self.history = BtcHistory(max_days=self.hist_days + 1)
@@ -94,14 +97,17 @@ class App:
             from kalshibot.marketdata.gold import GoldFeed      # Pyth with PYTH_API_KEY, else Hyperliquid oracle; Dukascopy history seed
             self.btc = GoldFeed(self.history, rest=self.rest, data_dir=self.data)
         else:
-            self.btc = BtcFeed(rest=self.rest if self.rest.has_key else None, history=self.history)
-        self.feed = (KalshiWs(self.rest, on_book=self._rec_book, on_trade=self._rec_trade) if self.rest.has_key
+            self.btc = BtcFeed(rest=self.rest if self.rest.has_key and not self.demo else None, history=self.history)
+        ws_kw = {"url": DEMO_WS} if self.demo else {}
+        self.feed = (KalshiWs(self.rest, on_book=self._rec_book, on_trade=self._rec_trade, **ws_kw) if self.rest.has_key
                      else PollingFeed(self.rest, book_interval=settings.io.book_poll_s, on_book=self._rec_book,
                                       on_trade=self._rec_trade))
         self._rec_last: dict[str, float] = {}
         self._open_of: dict[str, float] = {}       # ticker -> open time (also for the next market, before the bot switches)
         self.views = ViewBuilder(self.feed, self.btc)
-        if settings.risk.mode == "live":
+        if settings.risk.mode in ("live", "demo"):
+            if self.demo and not self.rest.has_key:
+                raise SystemExit("demo mode needs a Kalshi DEMO key: KALSHI_DEMO_API_KEY_ID and KALSHI_DEMO_PRIVATE_KEY_PATH")
             from kalshibot.execution.live import LiveBroker      # refuses unless the confirm phrase matches
             self.broker = LiveBroker(self.rest, settings, on_fill=self.on_fill, on_done=self.on_done)
         else:
@@ -253,7 +259,7 @@ class App:
                 held[L.side] = held.get(L.side, 0) + L.qty
         tps: dict[str, tuple[str, int, float]] = {}
         no_new = False
-        if self.s.risk.mode == "live":
+        if self.s.risk.mode in ("live", "demo"):
             recon = await self.broker.reconcile(run.market)
             ex = {h["side"]: h["qty"] for h in recon}
             if ex != {k: v for k, v in held.items() if v}:

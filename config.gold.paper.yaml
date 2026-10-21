@@ -23,5 +23,5 @@ risk:
 io:
   data_dir: ~/kalshibot-gold-data
   record: true
-  book_poll_s: 0.5           # gold book every 500 ms (keeps both bots well under the Kalshi read limit)
+  book_poll_s: 0.2           # only without a Kalshi key (with a key the order book streams in real time)
   dashboard_port: 8788

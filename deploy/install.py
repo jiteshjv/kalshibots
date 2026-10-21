@@ -80,7 +80,7 @@ risk:
 io:
   data_dir: {data.as_posix()}
   record: {"true" if record else "false"}          # order book recording
-  book_poll_s: 0.5
+  book_poll_s: 0.2      # only used without a Kalshi key (with a key the book streams in real time)
   dashboard_port: {port}
 # LIVE (real money): set risk.mode to live and add this line under risk:
 #   live_confirm: "I UNDERSTAND THIS TRADES REAL MONEY"

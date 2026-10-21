@@ -180,31 +180,42 @@ class GoldFeed:
         return [(int(x["t"]) // 1000, float(x["h"]), float(x["l"]), float(x["c"])) for x in c if start <= int(x["t"]) // 1000 < end]
 
     def seed_history(self, history, days: float = 3) -> int:
-        end = int(time.time()) // 3600 * 3600
-        hours, t, need = [], end, int(days * 24)        # `days` of TRADING hours: skip the weekend close (Fri 21:00 - Sun 22:00 UTC)
-        while sum(1 for h in hours if self._trading_hour(h)) < need and t > end - 12 * 86400:
-            hours.append(t); t -= 3600
-        ticks: dict[int, float] = {}
-        for t in sorted(hours):
-            for s, p in self._hour(t):
-                ticks[s] = p
-        off = self._offset(ticks)
-        bars: dict[int, list[float]] = {}
-        for s in sorted(ticks):
-            bars.setdefault(s // 60 * 60, []).append(ticks[s] + off)
-        for m, v in sorted(bars.items()):
-            history.add_minute_bar(m, max(v), min(v), v[-1])
+        """Load `days` of gold TRADING-hours history (the weekend close and the daily 21:00-22:00 UTC break are
+        skipped). Hyperliquid 1-minute candles first (fast, reliable), shifted to the Kalshi/Pyth level with recent
+        strikes; Dukascopy hourly files only if Hyperliquid gives nothing."""
         now = int(time.time()) // 60 * 60
-        last = max(bars) if bars else (min(hours) if hours else end) - 60
-        hl = self._hl_candles(min(last - 6 * 3600, now - 6 * 3600), now)  # 6 h of overlap to line the two up
-        both = [bars[m][-1] - c for m, _, _, c in hl if m in bars]
-        shift = statistics.median(both) if both else 0.0
-        fill = [(m, h + shift, lo + shift, c + shift) for m, h, lo, c in hl if m > last]
-        for m, h, lo, c in fill:
-            history.add_minute_bar(m, h, lo, c)
-        log.info("seeded %d gold minute bars from Dukascopy (offset to Pyth %+.2f) + %d from Hyperliquid (shift %+.2f)",
-                 len(bars), off, len(fill), shift)
-        return len(bars) + len(fill)
+        need = int(days * 24 * 60)                                     # trading minutes wanted
+        bars: dict[int, tuple[float, float, float]] = {}
+        end, oldest = now, now - 14 * 86400
+        while end > oldest and sum(1 for m in bars if self._trading_hour(m)) < need:
+            start = max(oldest, end - 5000 * 60)                       # Hyperliquid: at most 5000 candles per request
+            got = self._hl_candles(start, end)
+            if not got:
+                break
+            for m, h, lo, c in got:
+                bars[m] = (h, lo, c)
+            end = start
+        bars = {m: v for m, v in bars.items() if self._trading_hour(m)}
+        src = "Hyperliquid"
+        if not bars:                                                   # fallback: Dukascopy ticks
+            src = "Dukascopy"
+            hours, t = [], now // 3600 * 3600
+            while sum(1 for h in hours if self._trading_hour(h)) < days * 24 and t > now - 12 * 86400:
+                hours.append(t); t -= 3600
+            ticks: dict[int, float] = {}
+            for t in sorted(hours):
+                for sec, p in self._hour(t):
+                    ticks[sec] = p
+            mins: dict[int, list[float]] = {}
+            for sec in sorted(ticks):
+                mins.setdefault(sec // 60 * 60, []).append(ticks[sec])
+            bars = {m: (max(v), min(v), v[-1]) for m, v in mins.items()}
+        off = self._offset({m: c for m, (_, _, c) in bars.items()})
+        for m, (h, lo, c) in sorted(bars.items()):
+            history.add_minute_bar(m, h + off, lo + off, c + off)
+        log.info("seeded %d gold minute bars from %s (%.1f trading days, offset to Kalshi strikes %+.2f)",
+                 len(bars), src, len(bars) / 1380, off)
+        return len(bars)
 
     async def aseed_history(self, history, days: float = 3) -> int:
         return await asyncio.to_thread(self.seed_history, history, days)

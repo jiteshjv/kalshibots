@@ -570,12 +570,17 @@ class App:
                 loop.add_signal_handler(sig, self._on_signal, sig)
             except (NotImplementedError, RuntimeError):
                 pass
+        self.server.start()                                  # dashboard first: it answers while the history loads
+        self.journal.event("info", "history", "loading price history")
         last = self.history.load(self._hist_path(), max_age_s=self.hist_days * 86400)
-        gap_days = self.hist_days if last is None else min(self.hist_days, (time.time() - last) / 86400 + 5 / 1440)
+        thin = last is not None and len(self.history._bars) < 0.5 * self.hist_days * 1380   # e.g. a failed first start
+        if thin:
+            log.warning("history cache is thin (%d minute bars): reloading the full history", len(self.history._bars))
+        gap_days = self.hist_days if last is None or thin else min(self.hist_days, (time.time() - last) / 86400 + 5 / 1440)
         n = await self.btc.aseed_history(self.history, days=gap_days)
         log.info("history: %s minute bars from the cache + %s fetched (%.2f days)",
                  0 if last is None else len(self.history._bars) - n, n, gap_days)
-        self.server.start()
+        self.journal.event("info", "history", f"price history ready ({len(self.history._bars)} minute bars)")
         self.alerts.started(mode)
         try:
             await self._update_calendar()

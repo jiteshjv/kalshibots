@@ -59,17 +59,26 @@ def test_gold_feed_without_key_uses_hyperliquid_then_swissquote(monkeypatch):
     assert f.latest().stale and "hyperliquid" in f.last_error
 
 
-def test_seed_fills_the_dukascopy_gap_from_hyperliquid(monkeypatch, tmp_path):
+def test_seed_uses_hyperliquid_trading_minutes_and_falls_back_to_dukascopy(monkeypatch, tmp_path):
     from kalshibot.history import BtcHistory
     f = GoldFeed(None, data_dir=tmp_path)
-    now = int(time.time()) // 60 * 60
-    duka_end = now - 2 * 3600                                  # Dukascopy stops 2 h ago
-    monkeypatch.setattr(f, "_hour", lambda t: [(s, 4100.0) for s in range(t, min(t + 3600, duka_end))])
-    monkeypatch.setattr(f, "_hl_candles", lambda a, b: [(m, 4099.6, 4099.4, 4099.5) for m in range(a // 60 * 60, b, 60)])
+    mon = int(dt.datetime(2026, 10, 19, 15, 0, tzinfo=dt.timezone.utc).timestamp())   # Monday 8 AM PT
+    monkeypatch.setattr(time, "time", lambda: mon)
+    calls = []
+    def hl(a, b):
+        calls.append((a, b))
+        return [(m, 4100.5, 4099.5, 4100.0) for m in range(max(a, mon - 5000 * 60) // 60 * 60, b, 60)]
+    monkeypatch.setattr(f, "_hl_candles", hl)
+    monkeypatch.setattr(f, "_hour", lambda t: (_ for _ in ()).throw(AssertionError("Dukascopy not needed")))
     h = BtcHistory()
-    n = f.seed_history(h, days=0.5)
-    assert n > 0 and h.range_2h(now) is not None
-    assert abs(h.extreme(now - 600, now, "y") - 4100.1) < 1e-6    # Hyperliquid shifted +0.5 onto the Dukascopy level
+    n = f.seed_history(h, days=3)
+    sat = int(dt.datetime(2026, 10, 17, 12, 0, tzinfo=dt.timezone.utc).timestamp())
+    assert n > 0 and h.range_2h(mon) is not None
+    assert h.extreme(sat, sat + 3600, "y") is None                     # weekend candles dropped
+    monkeypatch.setattr(f, "_hl_candles", lambda a, b: [])            # Hyperliquid down -> Dukascopy
+    monkeypatch.setattr(f, "_hour", lambda t: [(s, 4100.0) for s in range(t, t + 3600, 30)])
+    g = BtcHistory()
+    assert f.seed_history(g, days=1) > 0 and g.range_2h(mon) is not None
 
 
 def test_seed_counts_trading_hours_not_calendar_days(monkeypatch, tmp_path):

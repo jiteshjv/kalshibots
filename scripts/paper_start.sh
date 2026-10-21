@@ -1,4 +1,8 @@
 # Start kalshibot in paper mode on this Mac (dashboard token from ~/kalshibot-data/dashboard_token.txt); pid in ~/kalshibot-data/bot.pid
+# Under launchd (scripts/launchd_run.sh, ~/Library/LaunchAgents/com.kalshibot.btc.plist) a restart = SIGTERM; launchd starts it again.
+if launchctl print gui/$(id -u)/com.kalshibot.btc >/dev/null 2>&1; then
+  launchctl kill SIGTERM gui/$(id -u)/com.kalshibot.btc && echo "restarting via launchd (com.kalshibot.btc)"; exit 0
+fi
 cd /Users/jvidhani/trading/research/kalshi_btc
 f=~/kalshibot-data/dashboard_token.txt; [ -s $f ] || (umask 077; python3 -c "import secrets;print(secrets.token_urlsafe(18))" > $f); chmod 600 $f
 P=~/kalshibot-data/bot.pid    # stop the running copy first, so a restart never leaves two bots

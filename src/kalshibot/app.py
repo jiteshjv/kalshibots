@@ -45,6 +45,16 @@ from kalshibot.strategy import Strategy
 from kalshibot.types import Fill, Lot, MarketInfo, OrderIntent
 
 log = logging.getLogger("kalshibot")
+
+
+def _clock(d) -> str:
+    """'9:05 PM' with no leading zero on every OS (Windows has no %-I / %-d)."""
+    return d.strftime("%I:%M %p").lstrip("0")
+
+
+def _day_clock(d) -> str:
+    """'Wed Oct 28 11:00 AM'."""
+    return d.strftime("%a %b ") + f"{d.day} " + _clock(d)
 ENTRY_KINDS = ("limit_buy", "market_buy")
 
 
@@ -403,17 +413,17 @@ class App:
         log.info("dashboard settings saved: %s", msg)
         nxt = ""
         if self.current is not None:
-            nxt = dt.datetime.fromtimestamp(self.current.market.close_ts, ZoneInfo("America/Los_Angeles")).strftime("%-I:%M %p PT")
+            nxt = _clock(dt.datetime.fromtimestamp(self.current.market.close_ts, ZoneInfo("America/Los_Angeles"))) + " PT"
         return True, f"saved. Strategy changes apply from the next market{(' (' + nxt + ')') if nxt else ''}.", []
 
     def schedule(self, days: float = 21) -> dict:
         """Upcoming no-entry windows (news calendar) and the recurring skipped hours, for the dashboard."""
         pt = ZoneInfo("America/Los_Angeles")
         now = time.time()
-        f = lambda t: dt.datetime.fromtimestamp(t, pt).strftime("%a %b %-d %-I:%M %p")
+        f = lambda t: _day_clock(dt.datetime.fromtimestamp(t, pt))
         names = {"jobs": "NFP jobs report", "cpi": "CPI", "ppi": "PPI", "fomc": "FOMC decision", "claims": "jobless claims",
                  "gdp_pce": "GDP / PCE", "retail": "retail sales"}
-        up = [{"start": f(a), "end": dt.datetime.fromtimestamp(b, pt).strftime("%-I:%M %p"), "what": names.get(e, e),
+        up = [{"start": f(a), "end": _clock(dt.datetime.fromtimestamp(b, pt)), "what": names.get(e, e),
                "now": a <= now <= b} for a, b, e in self.risk.upcoming_news(now, days)]
         rec = []
         if self.s.strategy.skip_hours_pt:

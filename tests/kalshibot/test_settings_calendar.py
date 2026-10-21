@@ -61,3 +61,28 @@ def test_upcoming_news_windows(tmp_path):
     assert [e for _, _, e in up] == ["fomc", "jobs"]                    # past CPI and unlisted claims left out
     a, b, _ = up[0]
     assert b - a == 3600 and time.strftime("%H:%M", time.gmtime(a)) == "18:00"   # 2 PM ET = 18:00 UTC
+
+
+def test_schedule_and_dashboard_export_use_portable_time_formats(tmp_path, monkeypatch):
+    """Windows strftime has no %-d / %-I: guard every formatting path the dashboard uses."""
+    import datetime as _dt
+    import pathlib
+    import re
+    src = (pathlib.Path(__file__).resolve().parents[2] / "src" / "kalshibot")
+    bad = [f"{p.name}:{i}" for p in src.rglob("*.py") for i, line in enumerate(p.read_text().splitlines(), 1)
+           if re.search(r'strftime\([^)]*%[-#]', line)]
+    assert not bad, bad
+    from kalshibot.app import App, _clock, _day_clock
+    d = _dt.datetime(2026, 10, 28, 9, 5)
+    assert _clock(d) == "9:05 AM" and _day_clock(d) == "Wed Oct 28 9:05 AM"
+    (tmp_path / "news_calendar.csv").write_text("date,event,time_et\n2099-01-02,fomc,14:00\n")
+    app = App.__new__(App)
+    app.s = Settings()
+    app.s.risk.news_mode, app.s.risk.news_before_min = "window", 0
+    app.risk = RiskGuard(app.s.risk, None, data_dir=tmp_path)
+    sc = app.schedule(days=30000)
+    assert sc["upcoming"][0]["what"] == "FOMC decision" and sc["upcoming"][0]["start"].startswith("Fri Jan 2 11:00 AM")
+    from kalshibot.journal import Journal
+    j = Journal(tmp_path)
+    j.export_dashboard_json(tmp_path / "dashboard.json", meta={"schedule": sc})
+    assert json.loads((tmp_path / "dashboard.json").read_text())["meta"]["schedule"]["upcoming"]

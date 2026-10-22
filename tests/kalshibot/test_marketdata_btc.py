@@ -102,6 +102,37 @@ def test_brti_preferred_when_fresh():
     assert t.source == "composite" and t.brti is None
 
 
+def test_pushed_brti_pauses_the_rest_poll():
+    import asyncio
+
+    class Rest:
+        has_key = True
+        calls = 0
+
+        def brti(self):
+            Rest.calls += 1
+            return (1000.0, 1.0)
+
+    now = [1000.0]
+    f = BtcFeed(weights=W, clock=lambda: now[0], rest=Rest())
+    f.brti_interval = 0.01
+    f.push_brti(999.9, 100005.0)
+    assert f.brti_px == 100005.0 and f.brti_push_at == 1000.0
+    f.push_brti(990.0, 1.0)                # older than brti_max_age: ignored
+    assert f.brti_px == 100005.0
+
+    async def go():
+        t = asyncio.create_task(f._brti_loop())
+        await asyncio.sleep(0.05)
+        assert Rest.calls == 0             # websocket fresh -> no REST poll
+        now[0] = 1010.0                    # websocket silent > 5 s -> poll again
+        await asyncio.sleep(0.05)
+        f._stop = True
+        await t
+    asyncio.run(go())
+    assert Rest.calls > 0
+
+
 def test_history_gets_composite_each_live_tick():
     h = StubHistory()
     f = feed(history=h)

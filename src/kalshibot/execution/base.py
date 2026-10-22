@@ -83,12 +83,12 @@ class OrderState:
     ticker: str
     kind: str                       # limit_buy | market_buy | limit_sell | market_sell
     side: Side
-    qty: int
+    qty: float                      # contracts (Kalshi trades fractions: 2 decimals)
     price: float | None             # limit price, or cap (market_buy) / floor (market_sell)
     lot_id: str | None = None
     reason: str = ""
     status: str = "pending"
-    filled: int = 0
+    filled: float = 0
     notional: float = 0.0           # sum(price * qty) over fills
     fees: float = 0.0
     placed_ts: float | None = None
@@ -104,8 +104,8 @@ class OrderState:
         return action_of(self.kind)
 
     @property
-    def remaining(self) -> int:
-        return max(self.qty - self.filled, 0)
+    def remaining(self) -> float:
+        return max(round(self.qty - self.filled, 2), 0)
 
     @property
     def active(self) -> bool:
@@ -182,13 +182,13 @@ class BrokerBase:
         stay on the exchange: they can only reduce a position, at the take-profit price."""
         n = 0
         for o in self.open_orders():
-            if o.action == "buy" and await self.cancel(o.client_id):
+            if o.action == "buy" and o.tif != "ioc" and await self.cancel(o.client_id):   # an IOC ends by itself
                 n += 1
         return n
 
     def restore_position(self, ticker: str, side: Side, qty: int) -> None:
         """Restart: the contracts already held (so sells are allowed)."""
-        self.positions[(ticker, side)] = int(qty)
+        self.positions[(ticker, side)] = round(qty, 2)
 
     # helpers --------------------------------------------------------------------------------------------------
     def _new_id(self) -> str:
@@ -196,7 +196,7 @@ class BrokerBase:
 
     def _make_state(self, intent: OrderIntent, ticker: str, ts: float | None) -> OrderState:
         cid = intent.client_id or self._new_id()
-        st = OrderState(client_id=cid, ticker=ticker, kind=intent.kind, side=intent.side, qty=int(intent.qty),
+        st = OrderState(client_id=cid, ticker=ticker, kind=intent.kind, side=intent.side, qty=round(intent.qty, 2),
                         price=intent.price, lot_id=intent.lot_id, reason=intent.reason, placed_ts=ts)
         st.tif = "ioc" if intent.kind in ("market_buy", "market_sell") else "gtc"
         st.post_only = intent.kind == "limit_buy"
@@ -210,16 +210,16 @@ class BrokerBase:
         """Record an execution on st and notify. force=True applies it even if st is terminal (live reality)."""
         if qty <= 0 or (not force and not st.active):
             return None
-        qty = int(qty)
-        st.filled += qty
+        qty = round(qty, 2)
+        st.filled = round(st.filled + qty, 2)
         st.notional += price * qty
         st.fees += fee
         key = (st.ticker, st.side)
         if st.action == "buy":
-            self.positions[key] = self.positions.get(key, 0) + qty
+            self.positions[key] = round(self.positions.get(key, 0) + qty, 2)
             self.cash -= price * qty + fee
         else:
-            self.positions[key] = self.positions.get(key, 0) - qty
+            self.positions[key] = round(self.positions.get(key, 0) - qty, 2)
             self.cash += price * qty - fee
         f = Fill(client_id=st.client_id, side=st.side, action=st.action, price=round(price, 6), qty=qty,
                  fee=round(fee, 4), ts=ts, maker=maker)

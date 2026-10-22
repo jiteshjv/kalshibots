@@ -150,6 +150,7 @@ class Recorder:
             self._upq.put(p)
         self._upthread = threading.Thread(target=self._upload_loop, name="kalshibot-rec-s3", daemon=True)
         self._upthread.start()
+        log.info("recorder: uploading finished hour files to s3://%s/%srec/", self.s3_bucket, self.s3_prefix)
 
     def _uploaded_set(self) -> set[str]:
         f = self.root / "uploaded.txt"
@@ -162,7 +163,7 @@ class Recorder:
         done = self._uploaded_set()
         cur = self._path
         return sorted(p for p in self.root.glob("*/*.jsonl.gz")
-                      if p != cur and str(p.relative_to(self.root)) not in done)
+                      if p != cur and p.relative_to(self.root).as_posix() not in done)
 
     def _upload_loop(self) -> None:
         assert self._upq is not None
@@ -170,7 +171,7 @@ class Recorder:
             p = self._upq.get()
             if p is None:
                 return
-            rel = str(p.relative_to(self.root))
+            rel = p.relative_to(self.root).as_posix()          # S3 key with / on Windows too
             if rel in self._uploaded_set():
                 continue
             for attempt in range(5):

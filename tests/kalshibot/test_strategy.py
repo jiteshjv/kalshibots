@@ -71,7 +71,7 @@ def test_entry_threshold_and_limit_price():
     assert (it.kind, it.side, it.qty, it.price, it.expires_s) == ("limit_buy", "y", 200, 0.907, 10)
     st2, _ = make()
     it, = st2.step(view(510, mny=-0.00101))
-    assert (it.side, it.price) == ("n", round(0.12 - 0.005, 4))
+    assert (it.side, it.price) == ("n", 0.11)          # 11.5c is not a valid Kalshi price: whole cents 10-90c
 
 
 def test_check_times_and_cutoff_min_12():
@@ -215,6 +215,25 @@ def test_stop_needs_both_conditions():
     assert out[0].client_id == tp.client_id and out[1].lot_id == st.lots[0].lot_id and out[1].qty == 200
     L = st.lots[0]
     assert (L.exit, L.exit_px) == ("stop", 0.55) and not st.open_lots()
+
+
+def test_fast_stop_sells_mid_second_once():
+    st, _, tp = _one_lot()                             # stop at 0.63
+    assert st.fast_stops(view(122, mark_y=0.70, mny=0.00005)) == []   # prints so far above the stop
+    assert st.fast_stops(view(122, mark_y=None, mny=0.00005)) == []   # no prints yet this second: nothing new
+    out = st.fast_stops(view(122, mark_y=0.60, mny=0.00005, bid_y=0.58))
+    assert kinds(out) == ["cancel", "market_sell"] and out[0].client_id == tp.client_id
+    assert st.lots[0].exit == "stop" and st.fast_stop_n == 1 and st.lastp != 0.60   # the carried mark is untouched
+    assert kinds(st.step(view(122, mark_y=0.60, mny=0.00005))) == []  # the whole-second step does not sell it again
+
+
+def test_fast_stop_keeps_the_stop_rule():
+    st, _, _ = _one_lot()
+    assert st.fast_stops(view(122, mark_y=0.60, mny=0.0005)) == []    # BTC lead too large: no stop, as in step()
+    assert kinds(st.fast_stops(view(122, mark_y=0.60, mny=0.00005, bid_y=0.70))) == ["cancel", "market_sell"]
+    st2, _, _ = _one_lot()                             # stop_recheck on: the bid is back above the stop -> hold
+    st2.cfg = replace(st2.cfg, stop_recheck=True)
+    assert st2.fast_stops(view(122, mark_y=0.60, mny=0.00005, bid_y=0.70)) == []
 
 
 def test_stop_mark_carries_from_last_print():
@@ -364,3 +383,70 @@ def test_deterministic_ids():
     st1, _ = make()
     st2, _ = make()
     assert st1.step(view(120))[0].client_id == st2.step(view(120))[0].client_id
+
+
+# ------------------------------------------------------------------------------------------------ her risk check / entry wait
+def _risk_ref(arr, t, u, k, samp=5, short=300, long_=900, adj=40):
+    """scripts/her_trades.py risk_at, on the same array."""
+    import math
+    sds = []
+    for w in (short, long_):
+        d = np.diff(arr[t - w - T0:t - T0 + 1:samp])
+        d = d[np.isfinite(d)]
+        if len(d) >= 5:
+            sds.append(float(np.std(d)) * math.sqrt(60 / samp))
+    left = max(900 - u - adj, 1) / 60
+    z = abs(arr[t - T0] - k) / (max(sds) * math.sqrt(left))
+    return 0.5 * math.erfc(z / math.sqrt(2))
+
+
+def test_risk_matches_backtest_formula():
+    rng = np.random.default_rng(7)
+    a = K + np.cumsum(rng.normal(0, 3.0, 4 * 86400))
+    a += K - a[OP - T0]                                     # at the strike at the open
+    st, _ = make(StrategyCfg(risk_max=0.15, mny_start=0, mny_floor=0), a)
+    for u in (120, 300, 600, 720):
+        t = OP + u
+        assert st.risk(float(t), float(a[t - T0])) == pytest.approx(_risk_ref(a, t, u, K), rel=1e-9)
+
+
+def test_risk_check_gates_entries():
+    a = np.full(4 * 86400, K)
+    a[OP - T0 - 900:] += np.tile([0.0, 30.0], (len(a) - (OP - T0 - 900)) // 2 + 1)[:len(a) - (OP - T0 - 900)]
+    cfg = StrategyCfg(risk_max=0.15, mny_start=0, mny_floor=0, sizing="equal")
+    st, _ = make(cfg, a)
+    near = st.step(view(120, mny=0.0001))                   # $6 from the strike, BTC jumping $30 a second: no entry
+    assert "limit_buy" not in kinds(near) and st.risk_blocks == 1
+    far = st.step(view(130, mny=0.01))                      # $600 away: risk ~0, entry
+    assert "limit_buy" in kinds(far)
+
+
+def test_risk_off_uses_moneyness_line():
+    st, _ = make(StrategyCfg(sizing="equal"))
+    assert "limit_buy" not in kinds(st.step(view(120, mny=0.001)))   # under the 0.15% line
+    assert st.risk_blocks == 0
+
+
+def test_entry_wait_s_market_after_5s():
+    st, _ = make(StrategyCfg(sizing="equal", entry_wait_s=5))
+    bid = [i for i in st.step(view(120)) if i.kind == "limit_buy"][0]
+    assert kinds(st.step(view(124))) == []
+    out = st.step(view(125))
+    assert kinds(out)[:2] == ["cancel", "market_buy"] and out[0].client_id == bid.client_id
+
+
+def test_unfilled_stop_waits_before_retrying():
+    st, _, _ = _one_lot()                              # stop at 0.63
+    sell = lambda s: [i for i in st.fast_stops(view(s, mark_y=0.60, mny=0.00005, bid_y=0.58)) if i.kind == "market_sell"]
+    out = sell(122)
+    assert len(out) == 1
+    st.on_order_done(out[0].client_id, "cancelled")    # nobody bought: no order storm in the same second
+    assert sell(122) == [] and kinds(st.step(view(122, mark_y=0.60, mny=0.00005))) == ["limit_sell"]   # TP back, no sale
+    out = sell(123)                                    # 1 s later: try again
+    assert len(out) == 1
+    st.on_order_done(out[0].client_id, "cancelled")
+    assert sell(124) == []                             # second failure: wait 2 s
+    out = sell(125)
+    assert len(out) == 1
+    st.on_order_done(out[0].client_id, "cancelled")
+    assert sell(128) == [] and len(sell(129)) == 1     # then 4 s, the most it waits

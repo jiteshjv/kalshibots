@@ -1,6 +1,8 @@
 """Order smoke test on Kalshi's DEMO exchange (fake money): every order path the bot uses, against the real API.
 
     python -m kalshibot.apitest [--series KXBTC15M]      (needs KALSHI_DEMO_API_KEY_ID + KALSHI_DEMO_PRIVATE_KEY_PATH)
+    python -m kalshibot.apitest --stops                  (stop + restart test through the bot's own order code)
+    Stop the demo bot first: the tests trade 1-2 contracts and must be alone in the market.
 
 Steps (1 contract, a market with >3 minutes left): balance; resting post-only buy far below the market -> listed ->
 cancel -> gone; immediate buy of 1 contract -> fill + position; resting take-profit sell -> listed -> cancel; immediate
@@ -46,9 +48,28 @@ def wait(fn, ok, timeout=10.0, every=0.5):
     return v
 
 
+def flat_market(rest: KalshiRest, series: str, max_wait_s: float = 1200) -> str | None:
+    """A market with 3+ minutes left where the account holds nothing and has no resting orders: the tests assume they
+    are alone in the market (never run them where the demo bot holds a position). Waits up to max_wait_s."""
+    t0 = time.time()
+    while True:
+        now = time.time()
+        for m in rest.open_markets(series):
+            if m.open_ts <= now < m.close_ts - 180 and abs(position(rest, m.ticker)) < 1e-9 and not resting_ids(rest, m.ticker):
+                step("open market with 3+ minutes left, account flat in it", True, m.ticker)
+                return m.ticker
+        if time.time() - t0 > max_wait_s:
+            step("open market with 3+ minutes left, account flat in it", False,
+                 "none found; stop the demo bot (it may hold this market) or try later")
+            return None
+        print("  ...no flat market with 3+ minutes left yet (demo bot holding this one?); checking again in 30 s")
+        time.sleep(30)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m kalshibot.apitest")
     ap.add_argument("--series", default="KXBTC15M")
+    ap.add_argument("--stops", action="store_true", help="run the stop test instead (2 contracts per side with a bid)")
     a = ap.parse_args(argv)
     kid, kp = kalshi_credentials(demo=True)
     if not (kid and kp):
@@ -69,12 +90,11 @@ def main(argv=None) -> int:
     except Exception as e:
         step("signed request (balance)", False, str(e)[:150])
         return 1
-    now = time.time()
-    ms = [m for m in rest.open_markets(a.series) if m.open_ts <= now < m.close_ts - 180]
-    if not step("open market with 3+ minutes left", bool(ms), ms[0].ticker if ms else "none; try again in a few minutes"):
+    if a.stops:
+        return stop_test(rest, a.series)
+    t = flat_market(rest, a.series)
+    if t is None:
         return 1
-    m = ms[0]
-    t = m.ticker
     book = parse_orderbook(rest.request("GET", f"/markets/{t}/orderbook"))
     start = position(rest, t)
     step("starting position read", True, f"{start:+g} contracts")
@@ -132,6 +152,152 @@ def main(argv=None) -> int:
         step("immediate sell filled (back to start)", abs(pos - start) < 1, f"position {pos:+g}")
     except Exception as e:
         step("immediate sell", False, str(e)[:200])
+    return summary()
+
+
+def stop_test(rest: KalshiRest, series: str) -> int:
+    """Stops the way the bot sends them, through LiveBroker and the strategy's order intents, on each side that has
+    an ask and a bid: buy 2 lots of 1 (market), a resting 99.7c take-profit sell per lot, then
+      partial stop: cancel lot 1's TP + market sell lot 1 -> 1 held, lot 2's TP still resting on the exchange;
+      full stop:    cancel lot 2's TP + market sell lot 2 -> 0 held, nothing resting;
+    and the broker's fills, positions and order states agree with the exchange at each point."""
+    import uuid
+    from kalshibot.config import Settings
+    from kalshibot.execution.live import LiveBroker
+    from kalshibot.types import OrderIntent
+    t = flat_market(rest, series)
+    if t is None:
+        return 1
+    s = Settings(); s.risk.mode = "demo"
+    done: dict[str, str] = {}
+    br = LiveBroker(rest, s, on_done=lambda cid, st: done.__setitem__(cid, st), inline=True,
+                    exchange_index=rest.exchange_index)
+    tag = uuid.uuid4().hex[:6]
+    n = iter(range(1, 1000))
+    cid = lambda: f"kbstop{tag}-{next(n):03d}"
+
+    def run(it: OrderIntent):
+        asyncio.run(br.submit(it, t))
+
+    def settle(c: str, timeout=10.0):           # an IOC order ends once its fills have been read
+        t0 = time.time()
+        while br.orders[c].active and time.time() - t0 < timeout:
+            time.sleep(0.5)
+            asyncio.run(br.poll_fills())
+        return br.orders[c]
+
+    for side in ("y", "n"):
+        name = "YES" if side == "y" else "NO"
+        book = parse_orderbook(rest.request("GET", f"/markets/{t}/orderbook"))
+        ask, bid = book.best_ask(side), book.best_bid(side)
+        if ask is None or bid is None:
+            print(f"  skip  {name}: demo book has no {'ask' if ask is None else 'bid'} on this side")
+            continue
+        start = position(rest, t)
+        br.restore_position(t, side, 0)
+        lots = []
+        for k in (1, 2):                                 # entries: market buys, as the bot's fallback sends them
+            c = cid()
+            run(OrderIntent(kind="market_buy", side=side, qty=1, price=0.99, lot_id=f"{tag}{side}L{k}", client_id=c,
+                            reason="entry_market_fallback"))
+            o = settle(c)
+            lots.append(o)
+        if not step(f"{name}: 2 market buys filled", all(o.filled == 1 for o in lots),
+                    f"at {[o.avg_price for o in lots]}, broker holds {br.position(t, side)}"):
+            for o in lots:                               # undo whatever filled
+                if o.filled:
+                    run(OrderIntent(kind="market_sell", side=side, qty=o.filled, lot_id=o.lot_id, client_id=cid(), reason="stop"))
+            continue
+        tps = []
+        for o in lots:                                   # one resting TP per lot (local reduce-only clip)
+            c = cid()
+            run(OrderIntent(kind="limit_sell", side=side, qty=1, price=0.997, lot_id=o.lot_id, client_id=c, reason="tp"))
+            tps.append(br.orders[c])
+        listed = wait(lambda: resting_ids(rest, t), lambda r: all(x.exchange_id in r for x in tps))
+        step(f"{name}: 2 take-profit sells resting", all(x.exchange_id in listed for x in tps),
+             f"states {[x.status for x in tps]}")
+        # partial stop: exactly what the strategy emits for one stopped lot (cancel its TP, then a market sell)
+        run(OrderIntent(kind="cancel", side=side, qty=0, lot_id=lots[0].lot_id, client_id=tps[0].client_id, reason="stop"))
+        c = cid()
+        t0 = time.time()
+        run(OrderIntent(kind="market_sell", side=side, qty=1, price=None, lot_id=lots[0].lot_id, client_id=c, reason="stop"))
+        o = settle(c)
+        sgn = 1 if side == "y" else -1                  # Kalshi positions: YES > 0, NO < 0
+        pos = wait(lambda: position(rest, t), lambda p: abs(p - (start + sgn)) < 1e-9)
+        res = resting_ids(rest, t)
+        step(f"{name}: partial stop sold 1 at the bid", o.filled == 1 and o.status == "filled",
+             f"sold at {o.avg_price}, book bid was {bid}, {time.time() - t0:.1f}s, status {o.status}")
+        step(f"{name}: after partial stop: 1 held, lot 2 TP still resting, lot 1 TP gone",
+             abs(pos - (start + sgn)) < 1e-9 and tps[1].exchange_id in res and tps[0].exchange_id not in res
+             and br.position(t, side) == 1, f"exchange position {pos:+g}, broker {br.position(t, side)}")
+        # full stop of the last lot
+        run(OrderIntent(kind="cancel", side=side, qty=0, lot_id=lots[1].lot_id, client_id=tps[1].client_id, reason="stop"))
+        c = cid()
+        run(OrderIntent(kind="market_sell", side=side, qty=1, price=None, lot_id=lots[1].lot_id, client_id=c, reason="stop"))
+        o = settle(c)
+        pos = wait(lambda: position(rest, t), lambda p: abs(p - start) < 1e-9)
+        res = resting_ids(rest, t)
+        step(f"{name}: full stop sold the last contract", o.filled == 1, f"sold at {o.avg_price}, status {o.status}")
+        step(f"{name}: after full stop: 0 held, no resting orders",
+             abs(pos - start) < 1e-9 and not any(x.exchange_id in res for x in tps) and br.position(t, side) == 0,
+             f"exchange position {pos:+g}, broker {br.position(t, side)}")
+        step(f"{name}: broker order states", done.get(tps[0].client_id) == "cancelled" and done.get(tps[1].client_id) == "cancelled",
+             f"TPs {[done.get(x.client_id) for x in tps]}")
+    # restart: 2 contracts held with their TPs resting, the bot process dies, a NEW broker (as after a restart)
+    # reconciles with Kalshi, adopts the resting TPs under their client ids, then stops both lots
+    for side in ("y", "n"):
+        book = parse_orderbook(rest.request("GET", f"/markets/{t}/orderbook"))
+        if book.best_ask(side) is None or book.best_bid(side) is None:
+            print(f"  skip  restart ({'YES' if side == 'y' else 'NO'}): demo book has no ask or bid on this side")
+            continue
+        name = "YES" if side == "y" else "NO"
+        sgn = 1 if side == "y" else -1
+        start = position(rest, t)
+        br.restore_position(t, side, 0)
+        lots, tps = [], []
+        for k in (1, 2):
+            c = cid()
+            run(OrderIntent(kind="market_buy", side=side, qty=1, price=0.99, lot_id=f"{tag}R{k}", client_id=c, reason="entry"))
+            lots.append(settle(c))
+        for o in lots:
+            c = cid()
+            run(OrderIntent(kind="limit_sell", side=side, qty=1, price=0.997, lot_id=o.lot_id, client_id=c, reason="tp"))
+            tps.append(br.orders[c])
+        wait(lambda: resting_ids(rest, t), lambda r: all(x.exchange_id in r for x in tps))
+        step(f"restart ({name}): before restart 2 held + 2 TPs resting", all(o.filled == 1 for o in lots)
+             and all(x.status == "resting" for x in tps), f"position {position(rest, t):+g}")
+        br0 = LiveBroker(rest, s, inline=True, exchange_index=rest.exchange_index)
+        asyncio.run(br0.cancel_entries())                # shutdown path (cancels resting buys, must keep the TPs)
+        res = resting_ids(rest, t)
+        step(f"restart ({name}): shutdown kept both TPs", all(x.exchange_id in res for x in tps))
+        br2 = LiveBroker(rest, s, on_done=lambda c_, st_: done.__setitem__(c_, st_), inline=True,
+                         exchange_index=rest.exchange_index)                      # the restarted bot
+        held = asyncio.run(br2.reconcile(t))
+        adopted = {o.client_id: o for o in br2.open_orders(t) if o.kind == "limit_sell"}
+        step(f"restart ({name}): reconcile sees 2 held", [(h["side"], h["qty"]) for h in held] == [(side, 2)],
+             str([(h["side"], h["qty"]) for h in held]))
+        step(f"restart ({name}): both TPs adopted under their own ids (not re-placed)",
+             all(x.client_id in adopted for x in tps) and len(adopted) == 2, f"{len(adopted)} adopted sells")
+        for i, (o, x) in enumerate(zip(lots, tps)):            # stop each lot through the restarted broker
+            asyncio.run(br2.submit(OrderIntent(kind="cancel", side=side, qty=0, lot_id=o.lot_id, client_id=x.client_id,
+                                               reason="stop"), t))
+            c = cid()
+            asyncio.run(br2.submit(OrderIntent(kind="market_sell", side=side, qty=1, price=None, lot_id=o.lot_id,
+                                               client_id=c, reason="stop"), t))
+            t0 = time.time()
+            while br2.orders[c].active and time.time() - t0 < 10:
+                time.sleep(0.5)
+                asyncio.run(br2.poll_fills())
+            so = br2.orders[c]
+            exp = start + sgn * (1 - i)
+            pos = wait(lambda: position(rest, t), lambda p: abs(p - exp) < 1e-9)
+            step(f"restart ({name}): stop {i + 1} after restart sold", so.filled == 1 and abs(pos - exp) < 1e-9,
+                 f"sold at {so.avg_price}, exchange position {pos:+g}, broker {br2.position(t, side)}")
+        res = resting_ids(rest, t)
+        step(f"restart ({name}): nothing left resting", not any(x.exchange_id in res for x in tps))
+        br.errors += br2.errors
+    if br.errors:
+        print("  broker errors:", "; ".join(br.errors)[:600])
     return summary()
 
 

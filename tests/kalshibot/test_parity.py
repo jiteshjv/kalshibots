@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from kalshibot.backtest.replay import ResearchData, Replayer, lot_pnl
+from kalshibot.config import StrategyCfg
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA, RES = ROOT / "data", ROOT / "results"
@@ -77,7 +78,7 @@ def test_sample_parity(data, ref):
     M = ref[0]
     ws = data.windows[::10]
     tickers = [w.ticker for w in ws]
-    res = Replayer(data).run(ws)
+    res = Replayer(data, StrategyCfg(tick_prices=False)).run(ws)   # reference results predate tick rounding
     bad, traded = _check(res, tickers, ref)
     assert traded >= 300
     assert not bad, bad[:10]
@@ -89,7 +90,7 @@ def test_sample_parity(data, ref):
 @pytest.mark.skipif(os.environ.get("KB_FULL_PARITY") != "1", reason="slow: set KB_FULL_PARITY=1")
 def test_full_66d_parity(data, ref):
     M = ref[0]
-    res = Replayer(data).run()
+    res = Replayer(data, StrategyCfg(tick_prices=False)).run()
     bad, traded = _check(res, [w.ticker for w in data.windows], ref)
     total = sum(r.pnl for r in res if r.traded)
     assert traded == len(M)

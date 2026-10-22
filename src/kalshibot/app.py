@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import math
 import signal
 import time
 import traceback
@@ -99,6 +100,8 @@ class App:
         else:
             self.btc = BtcFeed(rest=self.rest if self.rest.has_key and not self.demo else None, history=self.history)
         ws_kw = {"url": DEMO_WS} if self.demo else {}
+        if isinstance(self.btc, BtcFeed) and not self.demo:  # BRTI pushed by the Kalshi WS each second (REST poll = fallback)
+            ws_kw.update(brti=True, on_brti=self._on_brti)
         self.feed = (KalshiWs(self.rest, on_book=self._rec_book, on_trade=self._rec_trade, **ws_kw) if self.rest.has_key
                      else PollingFeed(self.rest, book_interval=settings.io.book_poll_s, on_book=self._rec_book,
                                       on_trade=self._rec_trade))
@@ -125,11 +128,21 @@ class App:
         self.recorder = None
         if settings.io.record:
             from kalshibot.recorder import Recorder
-            self.recorder = Recorder(self.data, settings.io.s3_bucket)
+            self.recorder = Recorder(self.data, settings.io.s3_bucket,
+                                     s3_prefix=settings.io.s3_prefix or f"{settings.strategy.series.lower()}/")
+            if isinstance(self.feed, KalshiWs):          # every book message, lossless (her data has the same)
+                self.feed.on_raw = lambda d: self.recorder.write("obraw", d)
+            if isinstance(self.btc, BtcFeed):            # every exchange trade message + the bot's prices every 100 ms
+                self.btc.on_raw = lambda s, d: self.recorder.write("ex", {"s": s, "m": d})
+            else:
+                self.btc.on_price = lambda p, pub, src: self.recorder.write("gold", {"p": p, "pub": pub, "src": src})
+            if hasattr(self.broker, "on_event"):         # live/demo: exact send / ack / cancel / fill times of our orders
+                self.broker.on_event = lambda k, d: self.recorder.write("lv_" + k, d)
         self.runs: dict[str, MarketRun] = {}       # ticker -> run (current + those awaiting settlement)
         self.cid_ticker: dict[str, str] = {}
         self.current: MarketRun | None = None
         self.stopping = False
+        self._fast_busy = False                    # a stop check started by an arriving trade is still running
         self.switch: str | None = None             # None | "disarm" | "kill"
         self.idle = False                          # switch finished: trading nothing until REARM
         self.last_day = dt.datetime.now(dt.timezone.utc).date()
@@ -156,16 +169,22 @@ class App:
         need = run.strat.threshold(max(sec, self.s.strategy.first_check_s))
         side = "Up" if lead >= 0 else "Down"
         name = "gold" if self.s.strategy.series.upper().startswith("KXGOLD") else "btc"
-        return {name: f"{p:,.2f}", "strike": f"{m.strike:,.2f}", "minute": f"{sec // 60}:{sec % 60:02d}",
-                "lead": f"{abs(lead) * 100:.3f}% {side}", "needed": f"{need * 100:.3f}%"
-                + ("" if self.s.strategy.first_check_s <= sec <= self.s.strategy.last_entry_s else " (no entries now)")}
+        late = "" if self.s.strategy.first_check_s <= sec <= self.s.strategy.last_entry_s else " (no entries now)"
+        out = {name: f"{p:,.2f}", "strike": f"{m.strike:,.2f}", "minute": f"{sec // 60}:{sec % 60:02d}",
+               "lead": f"{abs(lead) * 100:.3f}% {side}"}
+        if self.s.strategy.risk_max > 0:             # her risk check: show the risk now instead of a moneyness line
+            rk = run.strat.risk(now - 1, p)
+            out["risk_now"] = ("—" if rk is None else f"{rk * 100:.1f}%") + f" (max {self.s.strategy.risk_max * 100:g}%)" + late
+        else:
+            out["needed"] = f"{need * 100:.3f}%" + late
+        return out
 
     def meta(self) -> dict:
         err = getattr(self.btc, "last_error", "")
         feed = {"price_feed": err} if err else {}
         if getattr(self, "shard_note", None):
             feed["account"] = self.shard_note
-        return {**feed, "mode": self.s.risk.mode, "state": self.state_name(), **self.live_line(), "schedule": self.schedule(), "series": self.s.strategy.series, "market": self.current.market.ticker if self.current else None,
+        return {**feed, "mode": self.s.risk.mode, "state": self.state_name(), **self.live_line(), "schedule": self.schedule(), "series": self.s.strategy.series, "title": self.s.io.title, "entry_rule": "risk" if self.s.strategy.risk_max > 0 else "moneyness", "market": self.current.market.ticker if self.current else None,
                 "risk": self.risk.stats() if hasattr(self.risk, "stats") else {}, "updated": time.time()}
 
     def _sync_lots(self, run: MarketRun) -> None:
@@ -202,6 +221,9 @@ class App:
             return
         run.strat.on_fill(f)
         self.journal.record_fill(f, t)
+        if getattr(self, "recorder", None) is not None:
+            self.recorder.write("fill", {"t": t, "cid": f.client_id, "side": f.side, "act": f.action, "px": f.price,
+                                         "qty": f.qty, "fee": f.fee, "fts": f.ts, "maker": f.maker})
         self._sync_lots(run)
 
     def on_done(self, client_id: str, status: str) -> None:
@@ -211,6 +233,8 @@ class App:
             run.strat.on_order_done(client_id, status)
             self._sync_lots(run)
         self.journal.update_order(client_id, status=status)
+        if getattr(self, "recorder", None) is not None:
+            self.recorder.write("done", {"t": t, "cid": client_id, "status": status})
 
     # ---------------------------------------------------------------- market lifecycle
     async def _roll_market(self, now: float) -> None:
@@ -258,7 +282,7 @@ class App:
         held: dict[str, int] = {}
         for L in lots:
             if L.open:
-                held[L.side] = held.get(L.side, 0) + L.qty
+                held[L.side] = round(held.get(L.side, 0) + L.qty, 2)
         tps: dict[str, tuple[str, int, float]] = {}
         no_new = False
         if self.s.risk.mode in ("live", "demo"):
@@ -333,6 +357,23 @@ class App:
             run.skip_saved = True
             self.journal.mark_market_skipped(m.ticker, run.strat.skipped)
 
+    async def _fast(self, now: float) -> None:
+        """Between whole seconds: run the stop rule on the current second's prints so far (fast_stop_ms)."""
+        run = self.current
+        if run is None or self.switch == "kill" or not run.strat.open_lots():
+            return
+        m = run.market
+        if not (m.open_ts <= now < m.close_ts):
+            return
+        view = self.views.partial(m, now)
+        intents = run.strat.fast_stops(view)
+        if not intents:
+            return
+        await self._submit_all(run, intents, view)
+        if hasattr(self.broker, "work_market_now"):           # paper: sell into the live book now
+            self.broker.work_market_now(view, m.ticker)
+        self.journal.event("info", "fast_stop", f"{m.ticker}: stop at {now - math.floor(now):.2f} s into second {view.s}")
+
     async def _submit_all(self, run: MarketRun, intents: list[OrderIntent], view) -> None:
         """Submit one step's intents in order. If an entry is blocked, later intents for the same lot (its 99.7c
         sell) are dropped: that lot was never bought, so there is nothing to sell."""
@@ -360,6 +401,9 @@ class App:
             self.cid_ticker[it.client_id] = t
         if it.kind != "cancel":
             self.journal.record_order(it, t)
+        if getattr(self, "recorder", None) is not None:              # every order the strategy sends, next to the book it saw
+            self.recorder.write("ord", {"t": t, "cid": it.client_id, "kind": it.kind, "side": it.side, "qty": it.qty,
+                                        "px": it.price, "lot": it.lot_id, "why": it.reason, "mode": self.s.risk.mode})
         await self.broker.submit(it, run.market)
         return True
 
@@ -407,7 +451,7 @@ class App:
     # ---------------------------------------------------------------- dashboard settings / schedule
     def settings_view(self) -> dict:
         from kalshibot import settings_store
-        return {"ok": True, "values": settings_store.to_display(self.s), "fields": settings_store.spec_json(),
+        return {"ok": True, "values": settings_store.to_display(self.s), "fields": settings_store.spec_json(), "groups": settings_store.groups_json(),
                 "overridden": sorted(self._overrides), "mode": self.s.risk.mode, "series": self.s.strategy.series,
                 "note": "Strategy settings apply from the next market; risk settings apply at once. "
                         "Paper/live mode is changed only in config.yaml."}
@@ -545,10 +589,41 @@ class App:
         s = int(now - op) if op is not None else None
         self.recorder.write("book", {"t": tk, "s": s, "y": b.yes_bids[:10], "n": b.no_bids[:10]})
 
+    async def _rec_px_loop(self, every: float = 0.1) -> None:
+        """Every 100 ms: the composite BTC price, BRTI and each exchange's last trade price, as the bot sees them."""
+        while not self.stopping:
+            await asyncio.sleep(every - time.time() % every)
+            now = time.time()
+            b = self.btc
+            try:
+                self.recorder.write("px", {"c": b.raw_composite(now), "b": b.brti_px, "bts": b.brti_ts,
+                                           **{s: p.price for s, p in b.px.items() if p.price is not None}}, ts=now)
+            except Exception:  # noqa: BLE001
+                log.exception("price recording failed")
+
+    def _on_brti(self, ts: float, price: float) -> None:
+        self.btc.push_brti(ts, price)
+        if self.recorder is not None:
+            self.recorder.write("brti", {"ts": ts, "p": price})
+
     def _rec_trade(self, tk: str, tr) -> None:
         """Record every trade as it arrives (any subscribed market, including the next one before the bot switches)."""
         if self.recorder is not None:
             self.recorder.write("trade", {"t": tk, "ts": tr.ts, "side": tr.taker_side, "p": tr.price, "q": tr.qty})
+        run = self.current                         # fast stops: check at once on each print, not at the next 100 ms tick
+        if (self.s.strategy.fast_stop_ms > 0 and run is not None and tk == run.market.ticker and not self._fast_busy
+                and run.strat.open_lots()):
+            self._fast_busy = True
+            asyncio.get_running_loop().create_task(self._fast_on_trade())
+
+    async def _fast_on_trade(self) -> None:
+        try:
+            await self._fast(time.time())
+        except Exception as e:
+            self.journal.event("error", "fast_stop", traceback.format_exc()[-800:])
+            self.alerts.error("fast_stop", e)
+        finally:
+            self._fast_busy = False
 
     def _feed_down(self) -> bool:
         """The price feed reports an error (label skips with the cause, not the symptom)."""
@@ -644,11 +719,22 @@ class App:
             log.warning("news calendar update: %s", e)
         tasks = [asyncio.create_task(self.btc.run()), asyncio.create_task(self.feed.run()),
                  asyncio.create_task(self._settle_loop()), asyncio.create_task(self._housekeeping())]
+        if self.recorder is not None and isinstance(self.btc, BtcFeed):
+            tasks.append(asyncio.create_task(self._rec_px_loop()))
         try:
             nxt = int(time.time()) + 1
             while not self.stopping:
-                await asyncio.sleep(max(0.0, nxt - time.time() + 0.05))
+                fast = max(0, self.s.strategy.fast_stop_ms) / 1000.0     # read each time: dashboard changes apply at once
+                due = nxt + 0.05
+                await asyncio.sleep(max(0.0, (min(due, time.time() + fast) if fast else due) - time.time()))
                 now = time.time()
+                if now < due:                                 # between seconds: fast stop check only
+                    try:
+                        await self._fast(now)
+                    except Exception as e:
+                        self.journal.event("error", "fast_stop", traceback.format_exc()[-800:])
+                        self.alerts.error("fast_stop", e)
+                    continue
                 nxt = int(now) + 1
                 try:
                     await self._second(now)
@@ -661,6 +747,14 @@ class App:
                 await self.broker.cancel_entries()
             except Exception:
                 pass
+            if hasattr(self.broker, "settle_inflight"):  # record market buys / stops that filled just before the exit
+                try:
+                    left = await self.broker.settle_inflight()
+                    if left:
+                        self.journal.event("warn", "shutdown", f"{left} immediate order(s) without a result at exit "
+                                                               "(the restart reconcile checks Kalshi's position)")
+                except Exception as e:
+                    log.warning("settle_inflight: %s", e)
             self._save_history()
             for t in tasks:
                 t.cancel()

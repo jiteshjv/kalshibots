@@ -186,7 +186,8 @@ class KalshiWs:
     """Authenticated Kalshi WebSocket feed for a list of market tickers.
 
     Callbacks (sync or async): on_book(ticker, Book), on_trade(ticker, KTrade), on_fill(dict from parse_fill,
-    raw msg), on_ticker(raw msg), on_brti(ts, price), on_status(connected: bool)."""
+    raw msg), on_ticker(raw msg), on_brti(ts, price), on_status(connected: bool), on_raw(raw msg) for every
+    orderbook_snapshot / orderbook_delta as received (recorder: lossless book history)."""
 
     BOOK_CH, TRADE_CH, TICKER_CH, FILL_CH, BRTI_CH = "orderbook_delta", "trade", "ticker", "fill", "cfbenchmarks_value"
 
@@ -196,13 +197,14 @@ class KalshiWs:
                  on_fill: Callable | None = None, on_ticker: Callable | None = None,
                  on_brti: Callable | None = None, on_status: Callable | None = None,
                  connect: Callable[..., Any] | None = None, clock: Callable[[], float] = time.time,
-                 max_backoff: float = 30.0):
+                 max_backoff: float = 30.0, on_raw: Callable | None = None):
         self.rest, self.url = rest, url
         self.tickers: list[str] = list(dict.fromkeys(tickers))
         self.channels = list(channels) + ([self.BRTI_CH] if brti else [])
         self.use_yes_price = use_yes_price
         self.on_book, self.on_trade, self.on_fill = on_book, on_trade, on_fill
         self.on_ticker, self.on_brti, self.on_status = on_ticker, on_brti, on_status
+        self.on_raw = on_raw
         self._connect = connect
         self.clock = clock
         self.max_backoff = max_backoff
@@ -356,6 +358,8 @@ class KalshiWs:
             self._pending.pop(d.get("id", -1), None)
             return
         if typ in ("orderbook_snapshot", "orderbook_delta"):
+            if self.on_raw is not None:
+                await _call(self.on_raw, d)
             await self._book_msg(typ, d, msg, now)
             return
         if typ == "trade":

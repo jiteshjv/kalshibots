@@ -14,6 +14,10 @@ strategy:
   stop_pct: 0.20              # stop 20% below the buy price AND gold within 0.01% of the strike
   stop_lead: 0.0001
   take_profit: 0.999          # resting sell at 99.9c
+  stop_recheck: true          # sell a stop only if the bid is still at or below the stop price
+  limit_offset: 0.003         # entry bid 0.3c under the ask above 90c (whole cents 10-90c: 1c under)
+  entry_wait_s: 5             # unfilled bid -> market after 5 s (2026-10-21, same as BTC; backtest +$29.4K vs +$29.0K)
+  fast_stop_ms: 100           # check stops every 100 ms, sell at once (same as BTC; not backtested on gold - no gold book history)
 risk:
   mode: paper
   daily_loss_limit: 600.0

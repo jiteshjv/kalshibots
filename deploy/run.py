@@ -80,6 +80,16 @@ def main(argv=None) -> int:
         else:
             print("Kalshi key: not set up yet (.env KALSHI_API_KEY_ID and secrets/kalshi.pem"
                   + (", or for demo KALSHI_DEMO_API_KEY_ID and secrets/kalshi-demo.pem)" if demo else ")"))
+        io_ = Settings.load(str(bot / "config.yaml")).io
+        if io_.record and io_.s3_bucket:                  # write one small test file where the recordings will go
+            key = f"{io_.s3_prefix}rec/check/{os.environ.get('COMPUTERNAME') or os.uname().nodename}.txt"
+            try:
+                import boto3
+                boto3.client("s3").put_object(Bucket=io_.s3_bucket, Key=key, Body=b"kalshibot upload check\n")
+                print(f"S3 upload: OK (wrote s3://{io_.s3_bucket}/{key})")
+            except Exception as e:
+                print(f"S3 upload: FAILED ({type(e).__name__}: {str(e)[:200]})")
+                rc = rc or 5
         return rc
     return kb(["run", "--config", str(bot / "config.yaml")])
 

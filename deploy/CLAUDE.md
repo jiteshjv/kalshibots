@@ -19,8 +19,8 @@ Follow INSTALL.md step by step; this file adds what you must and must not do.
 ## Steps (Windows; on macOS/Linux skip NSSM and use launchd/systemd or run run.py directly)
 1. Check the tools: `python --version` (3.12+), `where openssl` or `C:\Program Files\Git\usr\bin\openssl.exe version`,
    `where nssm`. Install what is missing (see INSTALL.md step 1); ask before installing software.
-2. `python -m pip install websockets requests numpy pyyaml tzdata`
-3. From this folder: `python install.py --person jitesh --port 8787` and `python install.py --person wife --port 8789 --no-record`.
+2. `python -m pip install websockets requests numpy pyyaml tzdata boto3`
+3. From this folder: `python install.py --person jitesh --port 8787 --s3-bucket kalshi-btc` and `python install.py --person wife --port 8789 --no-record`.
 4. Ask the owner to put each private key file and each Key ID in place (INSTALL.md step 3). You may move a key file the
    owner points you to into the right `secrets\kalshi.pem`, and open `.env` in Notepad for them to type the Key ID.
 5. Run `--check` for each of the four bot folders. All must say `mode: paper` and `Kalshi key: OK`.
@@ -34,6 +34,10 @@ Follow INSTALL.md step by step; this file adds what you must and must not do.
 Unzip it and run `python install.py --update` from it (admin shell): it refreshes the code + calendar of all installed bots
 and restarts their services; nothing else changes. If INSTALL.md's "Updating" section lists `--set` changes for this
 version, include them in that command (they only touch settings.json, like the dashboard). Then check each log shows a fresh `starting in ... mode` line.
+
+## S3 upload of the recordings
+INSTALL.md "Upload the recordings to S3". The owner creates the AWS user and pastes its two key values into
+`C:\kalshibot\jitesh\.env` themselves; never read or print them. Verify only with `run.py ... --check` (`S3 upload: OK`).
 
 ## Troubleshooting
 - `openssl not found`: install Git for Windows; run.py looks in `C:\Program Files\Git\usr\bin` automatically.

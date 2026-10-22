@@ -311,3 +311,78 @@ def test_reconcile_positions_and_resting_orders():
     assert rec["fills"][-1].price == pytest.approx(0.997) and rec["fills"][-1].action == "sell"
     assert b.position(M.ticker, "n") == 0
     assert run(b.cancel("kb-e-9")) and rest.cancelled == ["R2"]
+
+
+def test_no_side_tp_listed_as_yes_buy_is_kept():
+    # Kalshi lists "sell NO at 99.7c" as side=yes action=buy yes_price 0.003 (seen on demo, Oct 21): holding NO it is
+    # our take-profit, not a stray buy -- restart must adopt it and shutdown must not cancel it
+    r = FakeRest()
+    r.pos = [{"ticker": M.ticker, "position_fp": "-3.00"}]
+    tp = {"order_id": "E1", "client_order_id": "kb-tp-n", "ticker": M.ticker, "side": "yes", "action": "buy",
+          "yes_price_dollars": "0.0030", "remaining_count_fp": "3.00", "status": "resting"}
+    entry = {"order_id": "E2", "client_order_id": "kb-bid-n", "ticker": M.ticker, "side": "yes", "action": "sell",
+             "yes_price_dollars": "0.0650", "remaining_count_fp": "1.00", "status": "resting"}
+    r.resting = [tp, entry]
+    b, _ = mk(r)
+    lots = run(b.reconcile(M))
+    assert lots[0]["side"] == "n" and lots[0]["qty"] == 3 and lots[0]["tp_client_id"] == "kb-tp-n"
+    o = b.orders["kb-tp-n"]
+    assert (o.kind, o.side, o.price, o.qty) == ("limit_sell", "n", 0.997, 3)
+    e = b.orders["kb-bid-n"]
+    assert (e.kind, e.side, e.price) == ("limit_buy", "n", 0.935)
+    b2, _ = mk(r)                                   # a fresh process shutting down: only the entry bid goes
+    run(b2.cancel_entries())
+    assert r.cancelled == ["E2"]
+
+
+def test_shutdown_keeps_inflight_market_buy_and_records_its_fill():
+    # demo, Oct 21 02:11: a fallback market buy sent 1 s before SIGTERM was marked cancelled by the shutdown and its
+    # fill never read -> journal 1 contract, Kalshi 2. Shutdown must leave IOC orders alone and wait for their result.
+    rest = FakeRest()                                 # IOC replies without counts: the result comes from the fills
+    b, rec = mk(rest)
+    submit(b, kind="limit_buy", side="y", qty=1, price=0.955, client_id="bid", expires_s=10)
+    submit(b, kind="market_buy", side="y", qty=1, price=0.985, client_id="mkt")
+    run(b.cancel_entries())
+    assert rest.cancelled == ["X1"]                   # only the resting bid
+    assert b.get("mkt").active and ("mkt", "cancelled") not in rec["done"]
+    rest.fill_rows = [{"trade_id": "t9", "order_id": "X2", "count": 1, "yes_price": 96, "is_taker": True, "ts": 1201}]
+    assert run(b.settle_inflight(timeout_s=1, every_s=0)) == 0
+    assert b.get("mkt").status == "filled" and b.position(M.ticker, "y") == 1 and len(rec["fills"]) == 1
+
+
+def test_settle_inflight_unfilled_stop_ends_cancelled():
+    rest = FakeRest()
+    b, rec = mk(rest)
+    b.positions[(M.ticker, "y")] = 1
+    submit(b, kind="market_sell", side="y", qty=1, client_id="stop")
+    assert b.get("stop").active
+    assert run(b.settle_inflight(timeout_s=1, every_s=0)) == 0           # no fill came back: not executed
+    assert rec["done"] == [("stop", "cancelled")] and b.position(M.ticker, "y") == 1
+
+
+def test_fractional_fill_is_kept():
+    # demo, Oct 21 05:55: 0.23 of a 1-contract NO bid filled; it used to be rounded to 0 and lost (Kalshi -2.23 vs 2)
+    rest = FakeRest()
+    b, rec = mk(rest)
+    submit(b, kind="limit_buy", side="n", qty=1, price=0.945, client_id="bid", expires_s=10)
+    rest.fill_rows = [{"trade_id": "f1", "order_id": "X1", "count_fp": "0.23", "yes_price_dollars": "0.0550",
+                       "is_taker": False, "ts": 1201}]
+    run(b.poll_fills())
+    o = b.get("bid")
+    assert o.filled == 0.23 and o.remaining == 0.77 and b.position(M.ticker, "n") == 0.23 and rec["fills"][0].qty == 0.23
+    submit(b, kind="limit_sell", side="n", qty=1, price=0.997, client_id="tp")      # TP clipped to what is held
+    assert b.get("tp").qty == 0.23 and rest.created[-1]["count"] == "0.23"
+
+
+
+def test_order_event_log_records_send_ack_and_cancel():
+    b, _ = mk()
+    ev = []
+    b.on_event = lambda k, d: ev.append((k, d))
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="c1", lot_id="L1", reason="entry")
+    run(b.cancel("c1"))
+    assert [k for k, _ in ev] == ["send", "ack", "cancel"]
+    assert ev[0][1]["cid"] == "c1" and ev[1][1]["ms"] == 0.0 and ev[2][1]["err"] is None
+    b.on_event = lambda k, d: 1 / 0                    # a broken log never stops an order
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="c2", lot_id="L2", reason="entry")
+    assert b.orders["c2"].exchange_id

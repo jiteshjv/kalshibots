@@ -24,7 +24,7 @@ On the VPS (Remote Desktop):
 3. **NSSM** from https://nssm.cc/download – unzip it and copy `win64\nssm.exe` to `C:\Windows\System32`.
 4. Open **PowerShell** and run:
    ```
-   python -m pip install websockets requests numpy pyyaml tzdata
+   python -m pip install websockets requests numpy pyyaml tzdata boto3
    ```
 
 ## 2. Install the bots
@@ -177,7 +177,7 @@ moneyness (backtest +32%) and turns on the BTC fair-value stop (backtest +$7.7K)
 
 ## Backups of the order-book recordings
 
-Your bots record the order book (about 70 MB a day for BTC) in `<bot>\data\rec\<date>\<hour>.jsonl.gz`. To copy them
+Your bots record every Kalshi order-book message, every exchange trade and the prices every 100 ms (about 1 GB a day for BTC and 0.35 GB for gold, gzip; record with one bot per market only, `--no-record` for the second person) in `<bot>\data\rec\<date>\<hour>.jsonl.gz`. To copy them
 somewhere safe every night and keep only 30 days on the VPS (change `D:\kalshibot-backup` to your backup folder, e.g. a
 second disk, a network share or a OneDrive folder):
 
@@ -187,6 +187,36 @@ schtasks /create /tn kalshibot-backup /sc daily /st 03:00 /ru SYSTEM /tr "python
 
 Run it once by hand to check: `schtasks /run /tn kalshibot-backup`. Files still being written are skipped, and a local
 file is only deleted once the same file is in the backup.
+
+## Upload the recordings to S3 (recommended)
+
+The recording bots can upload each finished hour file to S3 by themselves (within a minute or two after the hour; a
+failed upload is retried, and files missed while the bot was down are uploaded at the next start). Files land in
+`s3://kalshi-btc/vps/btc/rec/<date>/<hour>.jsonl.gz` and `s3://kalshi-btc/vps/gold/rec/...` (dates and hours in PT).
+
+1. **AWS user that can only upload** (AWS console, account that owns the `kalshi-btc` bucket): IAM → Users → Create user
+   `kalshibot-vps-upload` (no console access) → Permissions → Create inline policy → JSON:
+   ```
+   {"Version": "2012-10-17",
+    "Statement": [{"Effect": "Allow", "Action": ["s3:PutObject"], "Resource": "arn:aws:s3:::kalshi-btc/vps/*"}]}
+   ```
+   Then Security credentials → Create access key → "Application running outside AWS" → copy the two values.
+   This key can add files under `vps/` only: it cannot read, list or delete anything.
+2. **VPS:** `python -m pip install boto3`, then from the unzipped bundle (admin PowerShell):
+   ```
+   python install.py --update --s3-bucket kalshi-btc --person jitesh
+   ```
+   Only that person's bots upload (one copy of the data; if another person's bots were set to upload, that is removed).
+   It points those recording bots at the bucket and adds `AWS_ACCESS_KEY_ID=` / `AWS_SECRET_ACCESS_KEY=` /
+   `AWS_DEFAULT_REGION=us-east-2` lines to the person's `.env` (new installs: add `--s3-bucket kalshi-btc` to the install
+   command of the recording person).
+3. Open `C:\kalshibot\jitesh\.env` in Notepad and paste the two values after `AWS_ACCESS_KEY_ID=` and
+   `AWS_SECRET_ACCESS_KEY=`. Restart the bots: `nssm restart kalshibot-jitesh-btc` and `nssm restart kalshibot-jitesh-gold`.
+4. Check: `python C:\kalshibot\app\run.py C:\kalshibot\jitesh\btc --check` must print `S3 upload: OK`. After the next
+   full hour, the bot's log shows no `upload ... failed` lines and `<bot>\data\rec\uploaded.txt` lists the file.
+
+The nightly backup task above can stay as a second copy, or be dropped once S3 works (it is what deletes old local files;
+without it, delete `data\rec` folders older than you want to keep by hand, about 1.3 GB a day for both bots).
 
 ## Telegram alerts (recommended)
 

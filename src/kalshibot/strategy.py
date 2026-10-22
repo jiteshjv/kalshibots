@@ -54,6 +54,14 @@ from kalshibot.types import Fill, Lot, MarketInfo, OrderIntent, SecondView, Side
 _EPS = 1e-9
 
 
+def tick_floor(p: float) -> float:
+    """Round a bid down to a price Kalshi accepts. KXBTC15M / KXGOLD15M are "tapered_deci_cent": 0.1c steps below
+    10c and above 90c, whole cents in between (a 84.5c order is refused as invalid_price). Same for YES and NO."""
+    import math
+    step = 0.01 if 0.10 < p < 0.90 else 0.001
+    return round(math.floor(p / step + 1e-6) * step, 4)
+
+
 @dataclass
 class _Order:
     client_id: str
@@ -103,6 +111,10 @@ class Strategy:
         self.best = None                       # (lead/needed, lead, needed, s) at the closest entry check (dashboard)
         self.price_blocks = 0                  # checks where the lead was enough but the ask was >= max_price
         self.spread_blocks = 0                 # ... or the spread was too wide
+        self.risk_blocks = 0                   # checks where the risk number was above risk_max
+        self.fast_stop_n = 0                   # stops triggered between seconds (fast_stops)
+        self.stop_wait: dict[str, tuple[int, int]] = {}   # lot_id -> (market second it may retry, failed tries): a stop
+        #   sale that found no buyers waits 1, 2, then 4 s before the next try (no order storm on an empty book)
 
     def start_market(self, m: MarketInfo) -> None:
         self._reset()
@@ -188,6 +200,30 @@ class Strategy:
             var = sum((k / 60) ** 2 for k in range(1, max(left, 0) + 1))
         sd = sg * price * math.sqrt(max(var, 1e-9))
         return 0.5 * (1 + math.erf((mu - m.strike) / (sd * math.sqrt(2))))
+
+    # ------------------------------------------------------------------ her risk check (risk_max)
+    def risk(self, ts: float, price: float) -> float | None:
+        """Chance BTC finishes on the wrong side of the strike (her PDF, backtest her_trades.risk_at): SD of the $ change
+        between samples risk_sample_s apart over the last risk_short_s and risk_long_s seconds (the higher one, per
+        minute); Z = |price - strike| / (SD x sqrt(minutes left - risk_clock_adj_s)); risk = 1 - Phi(Z)."""
+        import numpy as np
+        c, m = self.cfg, self.market
+        if m is None or price != price:
+            return None
+        t = int(ts)
+        sds = []
+        for w in (c.risk_short_s, c.risk_long_s):
+            seg = self.history._sec_slice(t - w, t + 1)[::c.risk_sample_s]
+            with np.errstate(all="ignore"):
+                d = np.diff(seg)
+            d = d[np.isfinite(d)]
+            if len(d) >= 5:
+                sds.append(float(np.std(d)) * math.sqrt(60 / c.risk_sample_s))
+        if not sds or max(sds) <= 0:
+            return None
+        left = max(900 - int(ts - m.open_ts) - c.risk_clock_adj_s, 1) / 60
+        z = abs(price - m.strike) / (max(sds) * math.sqrt(left))
+        return 0.5 * math.erfc(z / math.sqrt(2))
 
     def end_market(self, yes_won: bool) -> list[Lot]:
         """Settle every open lot at $1/$0 (no fee). Resting orders are the broker's to cancel."""
@@ -321,27 +357,7 @@ class Strategy:
                         out += self._book_market_entry(v, o.side, left, e, "entry_market_fallback", False)
 
         # C. stops
-        lots = self.open_lots()
-        if self.side and lots and self.lastp is not None and v.btc is not None:
-            K = self.market.strike
-            lead = (v.btc.price - K) / K * (1 if self.side == "y" else -1)
-            fv = None
-            if c.stop_fair:
-                fy = self.fair_yes(v.ts, v.btc.price)
-                fv = None if fy is None else (fy if self.side == "y" else 1 - fy)
-            hit = [L for L in lots if (self.lastp <= L.stop or (fv is not None and fv <= L.stop)) and lead < c.stop_lead]
-            if hit:
-                b = v.bid.get(self.side)
-                if b is not None and c.stop_recheck:           # re-check: skip lots whose bid recovered above their stop
-                    hit = [L for L in hit if b <= L.stop + _EPS or (fv is not None and fv <= L.stop)]   # fair-value
-                    #   triggers are not re-checked against the bid: the point is to sell before the bid catches up
-                if b is not None and hit:
-                    for L in hit:
-                        tp = self.tp_of.get(L.lot_id)
-                        if tp is not None:
-                            out.append(self._cancel(tp, "stop"))
-                        out.append(self._intent("market_sell", L.side, L.qty, None, L.lot_id, "stop", s))
-                        L.exit, L.exit_px, L.exit_ts, L.fee_out = "stop", b, v.ts + 1, taker_fee(b, L.qty)
+        out += self._stop_intents(v, self.lastp, v.ts + 1)
 
         # D. entries
         check = (not self.no_entries and c.first_check_s <= s <= c.last_entry_s and s % c.check_every_s == 0)
@@ -367,6 +383,46 @@ class Strategy:
                 out.append(it)
         return out
 
+    def _stop_intents(self, v: SecondView, mark: float | None, exit_ts: float) -> list[OrderIntent]:
+        """Stops for every open lot whose mark (or fair value) is <= its stop while BTC is within stop_lead of the
+        strike; with stop_recheck only lots whose bid is still <= their stop. Sells each such lot at market."""
+        out: list[OrderIntent] = []
+        lots = self.open_lots()
+        if self.side and lots and mark is not None and v.btc is not None:
+            K = self.market.strike
+            lead = (v.btc.price - K) / K * (1 if self.side == "y" else -1)
+            fv = None
+            if self.cfg.stop_fair:
+                fy = self.fair_yes(v.ts, v.btc.price)
+                fv = None if fy is None else (fy if self.side == "y" else 1 - fy)
+            hit = [L for L in lots if (mark <= L.stop or (fv is not None and fv <= L.stop)) and lead < self.cfg.stop_lead
+                   and v.s >= self.stop_wait.get(L.lot_id, (0, 0))[0]]
+            if hit:
+                b = v.bid.get(self.side)
+                if b is not None and self.cfg.stop_recheck:           # re-check: skip lots whose bid recovered above their stop
+                    hit = [L for L in hit if b <= L.stop + _EPS or (fv is not None and fv <= L.stop)]   # fair-value
+                    #   triggers are not re-checked against the bid: the point is to sell before the bid catches up
+                if b is not None and hit:
+                    for L in hit:
+                        tp = self.tp_of.get(L.lot_id)
+                        if tp is not None:
+                            out.append(self._cancel(tp, "stop"))
+                        out.append(self._intent("market_sell", L.side, L.qty, None, L.lot_id, "stop", v.s))
+                        L.exit, L.exit_px, L.exit_ts, L.fee_out = "stop", b, exit_ts, taker_fee(b, L.qty)
+
+        return out
+
+    def fast_stops(self, v: SecondView) -> list[OrderIntent]:
+        """Between whole seconds (fast_stop_ms): the same stop rule on the prints so far in the current second, so a
+        stop sells within ~100 ms of the print instead of at the next second. Nothing else (entries, TPs) runs here."""
+        if self.market is None or self.skipped or not self.side or not self.open_lots() or not v.trades:
+            return []
+        mk = v.mark.get(self.side)
+        if mk is None or not any(mk <= L.stop for L in self.open_lots()):
+            return []
+        self.fast_stop_n += 1
+        return self._stop_intents(v, mk, v.ts)
+
     def _skip_cancels(self) -> list[OrderIntent]:
         out = []
         if self.pending is not None:
@@ -389,6 +445,11 @@ class Strategy:
         s2: Side | None = "y" if m >= th else ("n" if -m >= th else None)
         if not s2 or not (self.side is None or s2 == self.side or not lots):
             return []
+        if c.risk_max > 0:
+            rk = self.risk(v.ts, p)
+            if rk is None or rk > c.risk_max:
+                self.risk_blocks += 1
+                return []
         if c.filters and self.side is None:
             why = self.skip_reason(v.ts, s2, p)
             if why:
@@ -409,8 +470,8 @@ class Strategy:
                 return []
             if self.side and s2 != self.side:
                 self.lastp = None
-            it = self._intent("limit_buy", s2, sz, round(e - c.limit_offset, 4), None, "entry", s,
-                              expires_s=c.check_every_s)
+            it = self._intent("limit_buy", s2, sz, tick_floor(e - c.limit_offset) if c.tick_prices else round(e - c.limit_offset, 4), None, "entry", s,
+                              expires_s=c.entry_wait_s or c.check_every_s)
             self.pending = it.client_id
             return [it]
         return self._book_market_entry(v, s2, sz, e, "entry", True)
@@ -421,7 +482,7 @@ class Strategy:
         if o is None:
             return
         first = o.filled == 0
-        o.filled += f.qty
+        o.filled = round(o.filled + f.qty, 2)
         o.cost += f.price * f.qty
         o.fee += f.fee
         if o.first_ts is None:
@@ -516,7 +577,7 @@ class Strategy:
         frac = qty / L.qty
         part = Lot(lot_id=f"{L.lot_id}.{self._split}", ticker=L.ticker, side=L.side, qty=qty, buy=L.buy,
                    fee_in=round(L.fee_in * frac, 6), stop=L.stop, entry_ts=L.entry_ts, how=L.how)
-        L.qty -= qty
+        L.qty = round(L.qty - qty, 2)
         L.fee_in = round(L.fee_in - part.fee_in, 6)
         self.lots.append(part)
         return part
@@ -544,13 +605,18 @@ class Strategy:
             else:
                 L.qty = o.filled
         elif o.kind == "market_sell" and o.filled < o.qty and L.exit in ("stop", "kill"):
+            stop = L.exit == "stop"
             if o.filled == 0:                      # stop not executed: lot open again (TP re-placed next step)
                 L.exit = L.exit_px = L.exit_ts = None
                 L.fee_out = 0.0
+                rest = L
             else:
                 rest = self._split_lot(L, o.qty - o.filled)
                 rest.exit = None
                 L.exit_px, L.fee_out, L.exit_ts = o.cost / o.filled, o.fee, o.first_ts
+            if stop:
+                n = self.stop_wait.get(L.lot_id, (0, 0))[1] + 1
+                self.stop_wait[rest.lot_id] = (o.placed_s + min(2 ** (n - 1), 4), n)
 
     # ------------------------------------------------------------------ persistence
     def state(self) -> dict[str, Any]:

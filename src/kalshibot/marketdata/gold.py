@@ -25,6 +25,7 @@ import struct
 import time
 import urllib.request
 from pathlib import Path
+from typing import Any, Callable
 
 from kalshibot.marketdata.btc import ssl_context
 from kalshibot.types import BtcTick
@@ -50,6 +51,7 @@ class GoldFeed:
         self._stop = False
         self.source = "pyth" if self.key else "hyperliquid"
         self.last_error = ""
+        self.on_price: Callable[[float, float, str], Any] | None = None    # (price, publish/fetch time, source) per poll (recorder)
 
     # -- feed interface ----------------------------------------------------------------------------------------
     def age(self, now: float | None = None) -> float | None:
@@ -100,6 +102,8 @@ class GoldFeed:
             try:
                 px, pub = await asyncio.to_thread(self._fetch)
                 self._px, self._pub, self.last_error = px, pub, ""
+                if self.on_price is not None:
+                    self.on_price(px, pub, self.source)
             except Exception as e:                           # keep going; ticks turn stale
                 self.last_error = f"{'pyth' if self.key else 'gold feed'}: {type(e).__name__}: {e}"
             stale = self._px is None or now - (self._pub or 0) > self.stale_s

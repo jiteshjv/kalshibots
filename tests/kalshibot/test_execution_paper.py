@@ -344,3 +344,16 @@ def test_cancel_of_already_filled_order_does_not_touch_other_lot_orders():
     sub(b, kind="limit_sell", side="y", qty=100, price=0.997, client_id="tp", lot_id="L1")
     sub(b, kind="cancel", side="y", qty=0, client_id="e1", lot_id="L1", reason="entry_expired")
     assert b.get("tp").active and r.done == []
+
+
+def test_work_market_now_sells_into_the_live_book_mid_second():
+    r = Rec(); b = r.broker()
+    _hold(b)
+    r.fills.clear()
+    sub(b, kind="market_sell", side="y", qty=100, price=0.01, client_id="fs", reason="stop")
+    assert r.fills == []                                  # normal path: waits for the next second
+    b.work_market_now(view(199, yes_bids=[(0.62, 500)]))  # fast stop: executes against this book at once
+    assert [(f.qty, f.price) for f in r.fills] == [(100, 0.62)]
+    assert b.get("fs").status == "filled"
+    b.on_second(view(200, yes_bids=[(0.40, 500)]))        # not sold again at the next second
+    assert len(r.fills) == 1

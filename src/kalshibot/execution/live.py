@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from kalshibot.config import RiskCfg, Settings
 from kalshibot.risk import LiveModeRefused, live_mode_ok
@@ -91,7 +91,7 @@ def order_args(st: OrderState, exchange_index: int = 2) -> dict:
     if st.qty <= 0:
         raise ValueError("qty must be > 0")
     ioc = st.tif == "ioc"
-    return dict(ticker=st.ticker, side=st.side, action=st.action, qty=int(st.qty), price=round(px, 4),
+    return dict(ticker=st.ticker, side=st.side, action=st.action, qty=round(st.qty, 2), price=round(px, 4),
                 time_in_force="immediate_or_cancel" if ioc else "good_till_canceled",
                 post_only=bool(st.post_only) and not ioc, reduce_only=bool(st.reduce_only) and ioc,
                 client_order_id=st.client_id, exchange_index=exchange_index)
@@ -176,6 +176,14 @@ class LiveBroker(BrokerBase):
         self.unknown_fills: list[dict] = []
         self.last_fill_ts: float | None = None
         self.errors: list[str] = []
+        self.on_event: Callable[[str, dict], Any] | None = None   # order timing log (send / ack / err / cancel / fill)
+
+    def _ev(self, kind: str, **d: Any) -> None:
+        if self.on_event is not None:
+            try:
+                self.on_event(kind, d)
+            except Exception:                               # noqa: BLE001 - logging must never block an order
+                log.exception("order event log")
 
     async def _call(self, fn, *a):
         if self.inline:
@@ -206,13 +214,19 @@ class LiveBroker(BrokerBase):
             self._finish(st, "rejected")
             return
         st.meta["args"] = args
+        t0 = self.clock()
+        self._ev("send", cid=st.client_id, t=t0, args=args)
         try:
             kw = dict(args)
             reply = await self._call(lambda: self.rest.create_order(
                 kw.pop("ticker"), kw.pop("side"), kw.pop("action"), kw.pop("qty"), kw.pop("price"), **kw))
         except Exception as e:                            # noqa: BLE001 - any transport/API error
+            t1 = self.clock()
+            self._ev("err", cid=st.client_id, t=t1, ms=round((t1 - t0) * 1000, 1), msg=str(e)[:300])
             await self._after_create_error(st, e)
             return
+        t1 = self.clock()
+        self._ev("ack", cid=st.client_id, t=t1, ms=round((t1 - t0) * 1000, 1), reply=reply)
         self._on_create_reply(st, reply)
 
     def _clip_reduce_only(self, st: OrderState) -> None:
@@ -220,7 +234,7 @@ class LiveBroker(BrokerBase):
         working = sum(o.remaining for o in self.open_orders(st.ticker)
                       if o is not st and o.side == st.side and o.action == "sell")
         avail = self.position(st.ticker, st.side) - working
-        if avail <= 0:
+        if avail <= 0.005:
             raise ValueError("reduce_only_local: no unreserved position to sell")
         if st.qty > avail:
             st.meta["clipped_from"] = st.qty
@@ -240,7 +254,7 @@ class LiveBroker(BrokerBase):
                 if rc is not None and status in ("canceled", "cancelled", "executed"):
                     fc = st.qty - rc
             if fc is not None:
-                st.meta["ioc_fill_count"] = int(round(fc))
+                st.meta["ioc_fill_count"] = round(fc, 2)
             st.meta["ioc_sent"] = True
             if st.status == "pending":
                 st.status = "resting"                     # transient: settles via _settle_ioc
@@ -277,11 +291,17 @@ class LiveBroker(BrokerBase):
         st = self.orders.get(client_id)
         if st is None or not st.active:
             return False
+        if st.tif == "ioc":                               # immediate orders end by themselves (filled or not): marking
+            return False                                  # one "cancelled" here would lose a fill still on its way
         if st.exchange_id:
+            t0 = self.clock()
+            err = None
             try:
                 await self._call(self.rest.cancel_order, st.exchange_id)
             except Exception as e:                        # noqa: BLE001 - e.g. already filled / gone
                 self.errors.append(f"cancel {client_id}: {e}")
+                err = str(e)[:300]
+            self._ev("cancel", cid=client_id, t=t0, ms=round((self.clock() - t0) * 1000, 1), err=err)
         return self._finish(st, "cancelled")
 
     async def cancel_all(self, ticker: str | None = None) -> int:
@@ -314,8 +334,14 @@ class LiveBroker(BrokerBase):
         resting sells (take-profits) are left working."""
         n = await super().cancel_entries()
         try:
+            held: dict[str, Side] = {}                    # ticker -> side held (a resting order is read against it)
+            for p in _rows(await self._call(self.rest.positions), "market_positions", "positions"):
+                pos = _num(p, "position_fp", "position")
+                if pos:
+                    held[p.get("ticker") or p.get("market_ticker") or ""] = "y" if pos > 0 else "n"
             for o in _rows(await self._call(self.rest.orders, "resting"), "orders"):
-                st = self._adopt_order(o, o.get("ticker") or o.get("market_ticker") or "")
+                tk = o.get("ticker") or o.get("market_ticker") or ""
+                st = self._adopt_order(o, tk, held.get(tk))
                 if st is not None and st.action == "buy" and await self.cancel(st.client_id):
                     n += 1
         except Exception as e:                            # noqa: BLE001
@@ -358,6 +384,7 @@ class LiveBroker(BrokerBase):
         key = str(fid) if fid else f"{oid}|{_ts(raw)}|{qty}|{yes_price_of(raw)}"
         if key in self._seen_fills:
             return False
+        self._ev("fill", t=self.clock(), raw=raw)
         cid = raw.get("client_order_id")
         st = self.orders.get(cid) if cid else None
         if st is None and oid:
@@ -386,7 +413,7 @@ class LiveBroker(BrokerBase):
         ts = _ts(raw) or self.clock()
         if not st.active:
             log.warning("fill for terminal order %s (%s): applying anyway", st.client_id, st.status)
-        self._apply_fill(st, px, int(round(qty)), fee, ts, maker, force=True)
+        self._apply_fill(st, px, round(qty, 2), fee, ts, maker, force=True)   # fractions are real
         self.last_fill_ts = max(self.last_fill_ts or ts, ts)
         self._settle_ioc(st)
         return True
@@ -400,6 +427,22 @@ class LiveBroker(BrokerBase):
                 st.meta["ioc_fill_count"] = st.filled
                 self._settle_ioc(st)
         return n
+
+    async def settle_inflight(self, timeout_s: float = 5.0, every_s: float = 0.5) -> int:
+        """Shutdown: wait (polling fills) until every immediate order sent has its result, so a market buy or stop
+        that filled just before the exit is recorded. Returns the number still unsettled after timeout_s."""
+        import time as _time
+        t0 = _time.time()
+        while True:
+            left = [o for o in self.open_orders() if o.tif == "ioc"]
+            if not left or _time.time() - t0 >= timeout_s:
+                return len(left)
+            try:
+                await self.poll_fills()
+            except Exception as e:                        # noqa: BLE001
+                self.errors.append(f"settle_inflight: {e}")
+            if any(o.active for o in left):
+                await asyncio.sleep(every_s)
 
     def _settle_ioc(self, st: OrderState) -> None:
         if st.tif != "ioc" or not st.active or "ioc_fill_count" not in st.meta:
@@ -422,7 +465,7 @@ class LiveBroker(BrokerBase):
             if not pos:
                 continue
             side: Side = "y" if pos > 0 else "n"
-            qty = int(round(abs(pos)))
+            qty = round(abs(pos), 2)
             exposure = _dollars(p, ("market_exposure_dollars",), ("market_exposure",))
             buy = round(exposure / qty, 4) if exposure and qty else None
             fee_in = _dollars(p, ("fees_paid_dollars",), ("fees_paid",)) or 0.0
@@ -447,14 +490,16 @@ class LiveBroker(BrokerBase):
         yp = yes_price_of(o)
         if raw_side in ("bid", "ask") and yp is not None:
             side, action, px = classify_yes_book(raw_side, yp, held)
-        elif raw_side in ("yes", "no"):
-            side = "y" if raw_side == "yes" else "n"
-            action = str(o.get("action") or "buy")
-            px = (yp if side == "y" else round(1.0 - yp, 4)) if yp is not None else None
+        elif raw_side in ("yes", "no") and yp is not None:
+            # Kalshi lists orders on the YES book ("sell NO at 99.7c" comes back as "buy YES at 0.3c"), so map to
+            # bid/ask and read it against the held side like any YES-book order
+            act = str(o.get("action") or "buy").lower()
+            book_side = "bid" if (raw_side == "yes") == (act == "buy") else "ask"
+            side, action, px = classify_yes_book(book_side, yp, held)
         else:
             return None
         rem = _num(o, "remaining_count_fp", "remaining_count")
-        qty = int(round(rem if rem is not None else (_num(o, "count_fp", "count") or 0)))
+        qty = round(rem if rem is not None else (_num(o, "count_fp", "count") or 0), 2)
         st = OrderState(client_id=cid, ticker=ticker, kind="limit_buy" if action == "buy" else "limit_sell",
                         side=side, qty=qty, price=px, status="resting", exchange_id=oid or None, tif="gtc",
                         post_only=action == "buy", reduce_only=False, reason="reconciled")

@@ -118,6 +118,13 @@ class PaperBroker(BrokerBase):
                     and view.ts >= st.expires_ts + self.expiry_grace_s - EPS):
                 self._finish(st, "expired")
 
+    def work_market_now(self, view: SecondView, ticker: str | None = None) -> None:
+        """Fast stops between seconds: execute pending market orders of `ticker` against this (partial-second) view's
+        live book now instead of at the next on_second."""
+        for st in self.open_orders(ticker):
+            if st.kind in ("market_buy", "market_sell") and st.active:
+                self._execute_market(st, view)
+
     # ------------------------------------------------------------------------------------------------ internals
     def _last_view(self, ticker: str | None) -> SecondView | None:
         return self._view.get(ticker) or self._view.get(None)

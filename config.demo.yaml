@@ -11,6 +11,12 @@ strategy:
   sweep_days: 3         # sweep filter (2026-10-20): skip only after a break of a 3- to 14-day high/low on our side ...
   sweep_max_days: 30    # ... (not when it also breaks the 30-day level); the bot loads 31 days of BTC history at start
   sweep_4h_m60: 0       # 4h sweep + stretched 1h rule off (it lost money out of sample)
+  risk_max: 0.15        # her risk check (2026-10-21): enter only if the chance BTC ends on the wrong side is <= 15% ...
+  mny_start: 0          # ... instead of the moneyness line (off)
+  mny_floor: 0
+  limit_offset: 0.003   # entry bid 0.3c under the ask above 90c (whole cents 10-90c: 1c under)
+  entry_wait_s: 5       # unfilled bid -> market after 5 s (was 10). Backtest Jun 1 - Oct 21: +$349K, DD -$9.6K (was +$224K, -$12.8K)
+  fast_stop_ms: 100     # check stops every 100 ms, sell at once (her book, Jun-Oct: +$55K vs once a second)
 risk:
   mode: demo
   daily_loss_limit: 15

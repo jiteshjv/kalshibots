@@ -14,7 +14,7 @@ a live basis (EMA of fallback price - primary composite, learned while both were
 degrades the price by a few dollars instead of halting it.
 
 BRTI: polled via KalshiRest.brti() (needs a key + CF Benchmarks entitlement; 50 tokens/request, so every 2 s by
-default) or pushed in with set_brti() (e.g. from the Kalshi WS `cfbenchmarks_value` channel). BtcTick.price = BRTI
+default) or pushed in with push_brti() from the Kalshi WS `cfbenchmarks_value` channel (1/s; the poll pauses). BtcTick.price = BRTI
 while fresh, else the composite (types.BtcTick contract).
 
 Optional live bias correction (`BiasTracker`, from scripts/paper_trader.py): median of (official settlement value -
@@ -193,6 +193,7 @@ class BtcFeed:
     brti_max_age: float = 5.0
     basis_alpha: float = 1 / 300                        # EMA for fallback sources' basis vs primary
     clock: Callable[[], float] = time.time
+    on_raw: Callable[[str, dict], Any] | None = None    # every exchange trade message as received (recorder)
 
     def __post_init__(self) -> None:
         w = self.weights or load_weights()
@@ -206,6 +207,7 @@ class BtcFeed:
         self.brti_px: float | None = None
         self.brti_ts: float = 0.0
         self.brti_errors = 0
+        self.brti_push_at = 0.0                   # wall time of the last BRTI pushed by the Kalshi WS (polling pauses)
         self._latest: BtcTick | None = None
         self._last_price: float | None = None
         self._stop = False
@@ -218,6 +220,14 @@ class BtcFeed:
 
     def set_brti(self, ts: float, price: float) -> None:
         self.brti_ts, self.brti_px = float(ts), float(price)
+
+    def push_brti(self, ts: float, price: float) -> None:
+        """BRTI from the Kalshi WS `cfbenchmarks_value` channel (1/s); while it keeps coming, the REST poll is skipped."""
+        now = self.clock()
+        ts = min(float(ts), now)
+        if now - ts <= self.brti_max_age:
+            self.set_brti(ts, price)
+            self.brti_push_at = now
 
     # -- composite ---------------------------------------------------------------------------------------------
     def fresh(self, source: str, now: float) -> bool:
@@ -327,6 +337,11 @@ class BtcFeed:
                             p = None
                         if p:
                             self.update(src.name, p)
+                            if self.on_raw is not None:
+                                try:
+                                    self.on_raw(src.name, d)
+                                except Exception:  # noqa: BLE001
+                                    log.exception("on_raw failed")
                         if self._stop:
                             break
             except asyncio.CancelledError:
@@ -342,6 +357,9 @@ class BtcFeed:
     async def _brti_loop(self) -> None:
         interval = self.brti_interval
         while not self._stop:
+            if self.clock() - self.brti_push_at < self.brti_max_age:   # the websocket is delivering: no poll
+                await asyncio.sleep(self.brti_interval)
+                continue
             try:
                 ts, p = await asyncio.to_thread(self.rest.brti)
                 now = self.clock()

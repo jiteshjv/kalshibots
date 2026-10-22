@@ -88,6 +88,12 @@ select:focus-visible,input[type=date]:focus-visible{outline:2px solid var(--acce
 .sets input[type=number],.sets input[type=text],.sets select{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--fg)}
 .sets input:focus-visible,.sets select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .sets .ov{color:var(--warn);font-weight:600}.sets .hl{font-size:11px;color:var(--muted)}
+#setform{display:flex;flex-direction:column;gap:0;padding:0}
+.sgrp{border-top:1px solid var(--line);padding:12px 14px}.sgrp:first-child{border-top:0}
+.sgrp h3{margin:0;font-size:13px;font-weight:600;color:var(--fg)}.sgrp .about{font-size:12px;color:var(--muted);margin:2px 0 10px}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px 16px}
+.sgrp details.unused{margin-top:10px}.sgrp details.unused summary{font-size:12px;color:var(--muted);cursor:pointer}
+.sgrp details.unused .sgrid{margin-top:8px;opacity:.75}
 details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-marker{display:none}
 .savebar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:0 14px 12px}
 .savebtn{font:inherit;font-size:13px;font-weight:600;padding:6px 14px;border:1px solid var(--accent);border-radius:5px;background:var(--accent);color:var(--bg);cursor:pointer}
@@ -97,11 +103,11 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
 <div class="wrap">
   <div class="top">
     <div style="display:flex;flex-direction:column;gap:6px">
-      <h1>kalshibot</h1>
+      <h1 id="title">kalshibot</h1>
       <div class="status" id="status"><span class="mut">Loading…</span></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button type="button" class="killbtn" id="gosettings" style="border-color:var(--accent);color:var(--accent)" title="Size, entry timing, moneyness steps, stops, filters, news windows">Settings</button>
+      <button type="button" class="killbtn" id="gosettings" style="border-color:var(--accent);color:var(--accent)" title="Size, entry timing, entry rule, stops, filters, news windows">Settings</button>
       <button type="button" class="killbtn" id="rearm" style="border-color:var(--gain);color:var(--gain)" title="Trade again from the next market (only once the bot is idle)">Rearm</button>
       <button type="button" class="killbtn" id="disarm" title="No new entries; let open positions close normally, then stop">Disarm</button>
       <button type="button" class="killbtn" id="kill" title="Sell every position at market now, then stop">Kill</button>
@@ -149,7 +155,7 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
     <div class="box"><table id="sched"></table></div>
   </div>
   <details id="setbox" style="display:flex;flex-direction:column;gap:8px">
-    <summary><h2 style="display:inline">Settings ▸</h2> <span class="mut" style="font-size:12px">size, entry timing, moneyness steps, stops, filters, news windows</span></summary>
+    <summary><h2 style="display:inline">Settings ▸</h2> <span class="mut" style="font-size:12px">size, entry timing, entry rule, buying, stops, skip rules, loss limit, news</span></summary>
     <div class="box" style="margin-top:8px">
       <p id="setnote" style="font-size:12px;padding:12px 14px 0"></p>
       <form id="setform" class="sets" onsubmit="return false"></form>
@@ -272,9 +278,9 @@ function summary(){
 }
 const H="<tr><th class='l'></th><th class='l'>Day</th><th class='l'>Window</th><th class='l'>Side</th><th>Strike</th><th class='l'>Result</th><th>First entry</th><th>Entries</th><th>Contracts</th><th>Avg buy</th><th>Stopped</th><th>Sold at TP</th><th>Settled</th><th>P&amp;L</th></tr>";
 function tagOf(ex){return ex==="stopped"?"t-stop":ex.startsWith("sold")?"t-tp":ex==="open"?"t-open":"t-set";}
-function sub(t){const rows=E[t]||[];
- return `<tr class="sub"><td colspan="14"><div class="inner"><table><tr><th>#</th><th>Time</th><th class="l">Side</th><th>Contracts</th><th>Moneyness</th><th>Needed</th><th>Buy</th><th>Stop price</th><th class="l">Exit</th><th>Exit time</th><th>Exit price</th><th>P&amp;L</th></tr>`+
- (rows.length?rows.map(([n,t1,sd,cn,mn,th,b,s,ex,t2,xp,p])=>`<tr><td>${n}</td><td>${esc(t1)}</td><td class="l">${sd==="Y"?"YES":"NO"}</td><td>${cn}</td><td>${pct(mn)}</td><td>${pct(th)}</td><td>${c(b)}</td><td>${c(s)}</td><td class="l"><span class="tag ${tagOf(ex)}">${esc(ex.startsWith("sold")?ex.replace("c","¢"):ex)}</span></td><td>${esc(t2||"")}</td><td>${c(xp)}</td><td class="${cls(p)}">${usd(p)}</td></tr>`).join(""):`<tr><td colspan="12" class="mut" style="text-align:left">no entries</td></tr>`)+"</table></div></td></tr>"}
+function sub(t){const rows=E[t]||[],MNY=(META||{}).entry_rule!=="risk";   // BTC (her risk check) has no moneyness line
+ return `<tr class="sub"><td colspan="14"><div class="inner"><table><tr><th>#</th><th>Time</th><th class="l">Side</th><th>Contracts</th>${MNY?"<th>Moneyness</th><th>Needed</th>":""}<th>Buy</th><th>Stop price</th><th class="l">Exit</th><th>Exit time</th><th>Exit price</th><th>P&amp;L</th></tr>`+
+ (rows.length?rows.map(([n,t1,sd,cn,mn,th,b,s,ex,t2,xp,p])=>`<tr><td>${n}</td><td>${esc(t1)}</td><td class="l">${sd==="Y"?"YES":"NO"}</td><td>${cn}</td>${MNY?`<td>${pct(mn)}</td><td>${pct(th)}</td>`:""}<td>${c(b)}</td><td>${c(s)}</td><td class="l"><span class="tag ${tagOf(ex)}">${esc(ex.startsWith("sold")?ex.replace("c","¢"):ex)}</span></td><td>${esc(t2||"")}</td><td>${c(xp)}</td><td class="${cls(p)}">${usd(p)}</td></tr>`).join(""):`<tr><td colspan="${MNY?12:10}" class="mut" style="text-align:left">no entries</td></tr>`)+"</table></div></td></tr>"}
 function draw(){const fr=$("#fres").value;
  const keep=r=>fr==="k"?r.skip:fr==="o"?r.open>0:(!r.skip||!fr)&&(!fr||(fr==="w"?r.pnl>0:fr==="l"?r.pnl<=0:r.stopped>0));
  const R=[...M,...MX].sort((a,b)=>tms(a)-tms(b)).filter(r=>r.excluded?!fr:keep(r)).reverse();   // noted markets: shown, not counted
@@ -296,7 +302,7 @@ function status(){
  if(m.realized_today_utc!=null)parts.push(`today (UTC) ${col(m.realized_today_utc)}`);
  if(m.open_lots!=null)parts.push(`${m.open_lots} open entr${m.open_lots===1?"y":"ies"}`);
  if(m.open_orders!=null)parts.push(`${m.open_orders} open order${m.open_orders===1?"":"s"}`);
- for(const [k,v] of Object.entries(m)){if(["mode","state","kill","realized_today_utc","open_lots","open_orders","generated_ts","generated_pt","note"].includes(k)||v==null||typeof v==="object")continue;parts.push(`${esc(k.replace(/_/g," "))} ${esc(v)}`);}
+ for(const [k,v] of Object.entries(m)){if(["mode","state","kill","realized_today_utc","open_lots","open_orders","generated_ts","generated_pt","note","entry_rule"].includes(k)||v==null||typeof v==="object")continue;parts.push(`${esc(k.replace(/_/g," "))} ${esc(v)}`);}
  if(m.generated_pt)parts.push(`<span class="mut">data from ${esc(m.generated_pt)}${age!=null&&age>120?` (${Math.round(age/60)} min old)`:""}</span>`);
  if(m.note)parts.push(`<span class="mut">${esc(m.note)}</span>`);
  $("#status").innerHTML=parts.join(" · ")||'<span class="mut">no status</span>';
@@ -306,7 +312,7 @@ let HEALTH=null;
 async function load(){
  let d;try{d=await (await fetch("dashboard.json",{cache:"no-store"})).json();}catch(e){$("#status").innerHTML=`<span class="badge b-bad">cannot reach the bot</span> <span class="mut">retrying in 30 s</span>`;return;}
  try{HEALTH=await (await fetch("health",{cache:"no-store"})).json();}catch(e){HEALTH=null;}
- ALL=d.m||[];E=d.e||{};META=d.meta||{};EV=d.ev||[];status();sched();
+ ALL=d.m||[];E=d.e||{};META=d.meta||{};EV=d.ev||[];if(META.title){document.title=META.title;$("#title").textContent=META.title;}status();sched();
  if(!ALL.length){["#d0","#d1"].forEach(s=>{$(s).value="";});apply();return;}
  const ds=ALL.map(r=>r.d);const lo=ds.reduce((a,b)=>a<b?a:b),hi=ds.reduce((a,b)=>a>b?a:b);
  const wasFull=$("#d0").dataset.init?($("#d1").value===$("#d1").max):null;
@@ -371,15 +377,23 @@ async function loadSettings(){
  if(!SET.ok){$("#setnote").textContent=SET.error||"Settings unavailable.";return;}
  $("#setnote").textContent=`${SET.series} · ${SET.mode.toUpperCase()} mode. ${SET.note} Orange = changed here (overrides config.yaml).`;
  const ov=new Set(SET.overridden||[]);
- $("#setform").innerHTML=SET.fields.map(f=>{const v=SET.values[f.key],k=f.type.split(":")[0],id="s_"+f.key.replace(".","_");
+ const field=f=>{const v=SET.values[f.key],k=f.type.split(":")[0],id="s_"+f.key.replace(".","_");
   const unit=k==="pct"?" (%)":k==="cents"?" (¢)":"";const lab=`<span class="${ov.has(f.key)?'ov':''}">${esc(f.label)}${f.label.match(/\(.*\)$/)?'':unit}</span>`;
   let inp;
   if(k==="bool")inp=`<select id="${id}" data-k="${f.key}"><option value="true"${v?" selected":""}>on</option><option value="false"${!v?" selected":""}>off</option></select>`;
   else if(k==="choice")inp=`<select id="${id}" data-k="${f.key}">${f.type.split(":")[1].split(",").map(o=>`<option${o===v?" selected":""}>${o}</option>`).join("")}</select>`;
   else if(k==="str")inp=`<input type="text" id="${id}" data-k="${f.key}" value="${esc(v)}">`;
   else inp=`<input type="number" step="any" id="${id}" data-k="${f.key}" value="${esc(v)}"${f.min!=null?` min="${f.min}"`:""}${f.max!=null?` max="${f.max}"`:""}>`;
-  return `<label for="${id}">${lab}${inp}${f.help?`<span class="hl">${esc(f.help)}</span>`:""}${ov.has(f.key)?`<button type="button" class="lnk" data-reset="${f.key}" style="align-self:start;padding:2px 6px">reset to config</button>`:""}</label>`;}).join("");
+  return `<label for="${id}">${lab}${inp}${f.help?`<span class="hl">${esc(f.help)}</span>`:""}${ov.has(f.key)?`<button type="button" class="lnk" data-reset="${f.key}" style="align-self:start;padding:2px 6px">reset to config</button>`:""}</label>`;};
+ const groups=SET.groups||[{title:"Settings",about:""}];
+ $("#setform").innerHTML=groups.map(g=>{const fs=SET.fields.filter(f=>(f.group||"Settings")===g.title);if(!fs.length)return "";
+  const on=fs.filter(f=>inUse(f,SET.values)),off=fs.filter(f=>!inUse(f,SET.values)&&!f.hide_unused);
+  return `<section class="sgrp"><h3>${esc(g.title)}</h3>${g.about?`<p class="about">${esc(g.about)}</p>`:""}<div class="sgrid">${on.map(field).join("")}</div>`+
+   (off.length?`<details class="unused"><summary>${off.length} setting${off.length>1?"s":""} not in use with the settings above</summary><div class="sgrid">${off.map(field).join("")}</div></details>`:"")+`</section>`;}).join("");
 }
+function inUse(f,vals){if(!f.show_if)return true;const [k,op,want]=f.show_if;let v=vals[k];
+ if(typeof want==="number")v=Number(v);else if(typeof want==="boolean")v=(v===true||v==="true");
+ return op==="=="?v===want:op==="!="?v!==want:op===">"?v>want:true;}
 async function saveSettings(body){
  const tok=prompt("Dashboard password: KALSHIBOT_DASH_TOKEN in the .env file (VPS), or dashboard_token.txt in the bot's data folder (this Mac):");if(!tok)return;
  try{const r=await fetch("settings",{method:"POST",headers:{"Authorization":"Bearer "+tok,"Content-Type":"application/json"},body:JSON.stringify(body)});

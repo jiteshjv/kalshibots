@@ -263,3 +263,14 @@ def test_polling_feed_polls_book_faster_than_trades():
         t.cancel()
     run(go())
     assert len(books) >= 7 and 1 <= len(rest.trade_calls) <= 3      # ~10 books vs ~2 trade polls
+
+
+def test_on_raw_gets_every_book_message_as_received():
+    raw = []
+    w = mk(on_raw=raw.append)
+
+    async def go():
+        for k in ("subscribed", "snapshot", "delta_yes", "delta_no"):
+            await w.handle(MSG[k])
+    run(go())
+    assert raw == [MSG["snapshot"], MSG["delta_yes"], MSG["delta_no"]]     # book messages only, unchanged

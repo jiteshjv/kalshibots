@@ -86,3 +86,12 @@ def test_schedule_and_dashboard_export_use_portable_time_formats(tmp_path, monke
     j = Journal(tmp_path)
     j.export_dashboard_json(tmp_path / "dashboard.json", meta={"schedule": sc})
     assert json.loads((tmp_path / "dashboard.json").read_text())["meta"]["schedule"]["upcoming"]
+
+
+def test_every_setting_has_one_section():
+    names = [n for _, n, *_ in S.SPEC]
+    grouped = [n for _, _, ns in S.GROUPS for n in ns]
+    assert sorted(names) == sorted(grouped) and len(grouped) == len(set(grouped))
+    keys = {f"{s}.{n}" for s, n, *_ in S.SPEC}
+    assert all(v[0] in keys and n in names for n, v in S.SHOW_IF.items())
+    assert {f["group"] for f in S.spec_json()} == {g["title"] for g in S.groups_json()}

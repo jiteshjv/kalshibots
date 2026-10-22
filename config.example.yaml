@@ -35,7 +35,15 @@ strategy:
   max_price: 0.985            # Only buy if the ask is below 98.5 cents.
   max_spread: 0.03            # No entry if the gap between best bid and best ask is wider than 3 cents.
   limit_offset: 0.005         # Entries are a bid 0.5 cents under the ask (cheaper fees) ...
+  tick_prices: true          # Round entry bids down to Kalshi price steps (whole cents between 10c and 90c).
   limit_fallback: true        # ... and if that bid is not filled by the next check, buy at market instead.
+  entry_wait_s: 0             # >0: how long an unfilled entry bid waits before the market buy (0 = until the next check).
+  risk_max: 0.0               # >0: her risk check: enter only if the chance BTC ends on the wrong side is <= this (0.15 = 15%).
+                              #     With it on, set mny_start and mny_floor to 0 (no moneyness line).
+  risk_sample_s: 5            # Risk check: BTC sampled every 5 s ...
+  risk_short_s: 300           # ... typical move over the last 5 minutes ...
+  risk_long_s: 900            # ... and the last 15 minutes; the bigger one is used.
+  risk_clock_adj_s: 40        # Seconds taken off the time left (Kalshi settles on the final 60-second average).
 
   # --- size
   sizing: mixed               # "mixed" = size_early before early_until_s, size_late after; "equal" = size_late always.
@@ -51,6 +59,7 @@ strategy:
   roll: true                  # After every entry was stopped out, the bot may enter the other side.
   stop_recheck: false         # true = when a stop triggers, sell only if our side's bid is still at or below that entry's
   stop_fair: false           # Also stop when BTC's fair value for our side falls below the stop price (sells before Kalshi's bid catches up).
+  fast_stop_ms: 0            # >0: also check stops every this many ms between seconds and sell at once (BTC backtest on real book: 100 ms +$55K vs once a second). 0 = once a second.
                               #        stop price (skips stops whose price already bounced back).
   skip_hours_pt: ""           # skip whole markets starting in these Pacific hours, e.g. "7-9" (7:00-8:59 AM). "" = none.
   jump_pause: 0.0             # >0 = no new entries while any clock minute in the last 15 moved more than this
@@ -84,6 +93,8 @@ io:
   book_poll_s: 1.0            # Without a Kalshi key: read the order book every this many seconds (0.2 = 5 times a second).
   record: false               # Record every order-book change to disk (research use; uses a lot of disk). Leave off.
   s3_bucket: ""               # Optional Amazon S3 bucket to upload recordings to (only with record: true).
+  title: ""                   # Dashboard page title, e.g. "Jv-BTC bot". Empty = "kalshibot".
+  s3_prefix: ""               # Key prefix in that bucket, e.g. "vps/btc/". Empty = the series name ("kxbtc15m/").
   telegram_token_env: TELEGRAM_BOT_TOKEN   # NAME of the environment variable holding your Telegram bot token.
   telegram_chat_env: TELEGRAM_CHAT_ID      # NAME of the environment variable holding your Telegram chat id.
   dashboard_port: 8787        # Port of the dashboard web page (only reachable from the server itself).

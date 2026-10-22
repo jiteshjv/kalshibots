@@ -159,7 +159,9 @@ def test_fair_value_stop_triggers_before_the_bid_and_skips_the_recheck():
     assert abs(st.fair_yes(OP + 600, p) - want) < 1e-9
     st.lots = [Lot(lot_id="L1", ticker="KXBTC15M-TEST", side="n", qty=100, buy=0.96, fee_in=0.1, stop=0.72, entry_ts=OP + 300)]
     st.side, st.lastp = "n", 0.90                                 # NO bid still 90c (above the 72c stop) ...
-    out = st.step(view(600, mny=0.0001, mark_y=0.10, bid_n=0.90, ask_n=0.91))   # ... but fair NO ~ 0.5 < 0.72
+    out = st.step(view(600, mny=0.0001, mark_y=0.10, bid_n=0.90, ask_n=0.91))   # ... fair NO ~ 0.5 < 0.72, but the
+    assert not [i for i in out if i.kind == "market_sell"]       # re-check holds it: the bid is above the stop (backtest)
+    out = st.step(view(601, mny=0.0001, mark_y=0.10, bid_n=0.70, ask_n=0.71))   # bid now at/below the stop: sell
     assert [i.kind for i in out if i.lot_id == "L1"].count("market_sell") == 1
     st2 = Strategy(StrategyCfg(stop_pct=0.25, stop_lead=0.0003, stop_recheck=True, stop_fair=False), BtcHistory.from_array(T0, a))
     st2.start_market(st.market); st2.lots = [Lot(lot_id="L1", ticker="KXBTC15M-TEST", side="n", qty=100, buy=0.96, fee_in=0.1, stop=0.72, entry_ts=OP + 300)]

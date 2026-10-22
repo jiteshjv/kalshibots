@@ -400,8 +400,9 @@ class Strategy:
             if hit:
                 b = v.bid.get(self.side)
                 if b is not None and self.cfg.stop_recheck:           # re-check: skip lots whose bid recovered above their stop
-                    hit = [L for L in hit if b <= L.stop + _EPS or (fv is not None and fv <= L.stop)]   # fair-value
-                    #   triggers are not re-checked against the bid: the point is to sell before the bid catches up
+                    hit = [L for L in hit if b <= L.stop + _EPS]     # fair-value triggers too, as in the backtest
+                    #   (her_trades CONFIRM=bid): selling FV stops with the bid still above the stop cost -$833 on
+                    #   53 paper lots Oct 21-22 that the backtest held to 99.7c
                 if b is not None and hit:
                     for L in hit:
                         tp = self.tp_of.get(L.lot_id)

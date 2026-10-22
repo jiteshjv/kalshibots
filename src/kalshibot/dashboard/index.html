@@ -27,6 +27,11 @@ p{margin:0;max-width:80ch;color:var(--muted)}
 .stat{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .stat .k{font-size:12px;color:var(--muted)}.stat .v{font-family:var(--mono);font-size:20px;font-weight:500;font-variant-numeric:tabular-nums}
 .stat .s{font-size:11.5px;color:var(--muted)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line)}
+.tabs a{padding:8px 14px;font-size:14px;font-weight:600;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs a[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+.tabs a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.view{display:flex;flex-direction:column;gap:20px}.view[hidden]{display:none}
 .box{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 th,td{padding:6px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
@@ -107,19 +112,18 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
       <div class="status" id="status"><span class="mut">Loading…</span></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button type="button" class="killbtn" id="gosettings" style="border-color:var(--accent);color:var(--accent)" title="Size, entry timing, entry rule, stops, filters, news windows">Settings</button>
       <button type="button" class="killbtn" id="rearm" style="border-color:var(--gain);color:var(--gain)" title="Trade again from the next market (only once the bot is idle)">Rearm</button>
       <button type="button" class="killbtn" id="disarm" title="No new entries; let open positions close normally, then stop">Disarm</button>
       <button type="button" class="killbtn" id="kill" title="Sell every position at market now, then stop">Kill</button>
     </div>
   </div>
+  <nav class="tabs" role="tablist" aria-label="Pages">
+    <a href="#dashboard" role="tab" data-v="dashboard">Dashboard</a>
+    <a href="#live" role="tab" data-v="live">Live</a>
+    <a href="#settings" role="tab" data-v="settings">Settings</a>
+  </nav>
+<div class="view" data-view="dashboard">
   <p>Every Kalshi BTC 15-minute market the bot traded, and every entry inside it. P&amp;L is realized (closed entries, fees included); open entries show as “open”. Times are Pacific. Click a market to see its entries. The page refreshes every 30 s.</p>
-  <section style="display:flex;flex-direction:column;gap:8px" id="mcsec">
-    <div class="rangebar"><h2>Market chart</h2><select id="mcsel" aria-label="Market" style="font:inherit;font-size:13px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg)"></select><span id="mcnote" class="mut" style="font-size:12px"></span></div>
-    <p style="font-size:12px">Top: Bitcoin (or gold) against the strike. The shaded band is "too close to buy" (the distance the entry rule needs at that moment); the bot only buys between the dashed lines. Bottom: the price of our side (the ask) with the buy ceiling, the 99.7&cent; target, and each entry with its stop. Dots: <span style="color:var(--gain)">&#9679;</span> in (bought) <span style="color:var(--loss)">&#9679;</span> out (sold, stopped or settled). Updates every 3 s.</p>
-    <div class="box chart"><svg id="mc" viewBox="0 0 1000 556" style="width:100%;height:auto" role="img" aria-label="Bitcoin against the strike and our side's price for the selected market"></svg></div>
-    <div class="box"><table id="mcchk"></table></div>
-  </section>
   <div class="controls" aria-label="Date range">
     <label for="d0">From<input type="date" id="d0"></label>
     <label for="d1">To<input type="date" id="d1"></label>
@@ -160,18 +164,35 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
     <p id="schednote" style="font-size:12px"></p>
     <div class="box"><table id="sched"></table></div>
   </div>
-  <details id="setbox" style="display:flex;flex-direction:column;gap:8px">
-    <summary><h2 style="display:inline">Settings ▸</h2> <span class="mut" style="font-size:12px">size, entry timing, entry rule, buying, stops, skip rules, loss limit, news</span></summary>
-    <div class="box" style="margin-top:8px">
-      <p id="setnote" style="font-size:12px;padding:12px 14px 0"></p>
-      <form id="setform" class="sets" onsubmit="return false"></form>
-      <div class="savebar"><button type="button" class="savebtn" id="setsave">Save settings</button><span id="setmsg" class="mut" style="font-size:12px"></span></div>
-    </div>
-  </details>
+</div>
+<div class="view" data-view="live" hidden>
+  <section style="display:flex;flex-direction:column;gap:8px">
+    <h2>Current market</h2>
+    <div class="stats" id="nowstats"></div>
+    <div class="box"><table id="nowlots"></table></div>
+    <div class="box"><table id="noword"></table></div>
+  </section>
+  <section style="display:flex;flex-direction:column;gap:8px" id="mcsec">
+    <div class="rangebar"><h2>Market chart</h2><select id="mcsel" aria-label="Market" style="font:inherit;font-size:13px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg)"></select><span id="mcnote" class="mut" style="font-size:12px"></span></div>
+    <p style="font-size:12px">Top: Bitcoin (or gold) against the strike. The shaded band is "too close to buy" (the distance the entry rule needs at that moment); the bot only buys between the dashed lines. Bottom: the price of our side (the ask) with the buy ceiling, the 99.7&cent; target, and each entry with its stop. Dots: <span style="color:var(--gain)">&#9679;</span> in (bought) <span style="color:var(--loss)">&#9679;</span> out (sold, stopped or settled). Updates every 3 s.</p>
+    <div class="box chart"><svg id="mc" viewBox="0 0 1000 556" style="width:100%;height:auto" role="img" aria-label="Bitcoin against the strike and our side's price for the selected market"></svg></div>
+    <div class="box"><table id="mcchk"></table></div>
+  </section>
   <div style="display:flex;flex-direction:column;gap:8px">
     <h2>Recent events</h2>
     <div class="box"><table id="ev" class="ev"></table></div>
   </div>
+</div>
+<div class="view" data-view="settings" hidden>
+  <section style="display:flex;flex-direction:column;gap:8px">
+    <h2>Settings</h2><p style="font-size:12px">Size, entry timing, entry rule, buying, stops, skip rules, loss limit, news. Saving needs the dashboard token; changes apply at once (sizes from the next entry).</p>
+    <div class="box">
+      <p id="setnote" style="font-size:12px;padding:12px 14px 0"></p>
+      <form id="setform" class="sets" onsubmit="return false"></form>
+      <div class="savebar"><button type="button" class="savebtn" id="setsave">Save settings</button><span id="setmsg" class="mut" style="font-size:12px"></span></div>
+    </div>
+  </section>
+</div>
 </div>
 <script>
 const $=s=>document.querySelector(s);
@@ -416,8 +437,6 @@ $("#setsave").addEventListener("click",()=>{if(!SET)return;const ch={};
  if(!confirm("Save these settings?\n\n"+Object.entries(ch).map(([k,v])=>k+" = "+v).join("\n")+"\n\nStrategy changes apply from the next market."))return;
  saveSettings(ch);});
 $("#setform").addEventListener("click",e=>{const b=e.target.closest("[data-reset]");if(!b)return;if(confirm("Reset "+b.dataset.reset+" to the value in config.yaml?"))saveSettings({[b.dataset.reset]:null});});
-$("#gosettings").addEventListener("click",()=>{const b=$("#setbox");b.open=true;if(!SET)loadSettings();b.scrollIntoView({behavior:"smooth",block:"start"});});
-$("#setbox").addEventListener("toggle",()=>{if($("#setbox").open&&!SET)loadSettings();});
 load();setInterval(load,30000);
 // ---------------------------------------------------------------- market chart (market.json / markets.json)
 let MC=null,MCSEL="",MCOPEN=new Set();
@@ -432,7 +451,7 @@ async function mcList(){
 async function mcLoad(){
  let D;try{D=await (await fetch("market.json"+(MCSEL?"?t="+encodeURIComponent(MCSEL):""),{cache:"no-store"})).json();}catch(e){return;}
  if(!D||D.error||!D.ticker){$("#mc").innerHTML=`<text x="500" y="270" text-anchor="middle" style="fill:var(--muted);font-size:14px">${esc(D&&D.error||"no market yet")}</text>`;$("#mcchk").innerHTML="";return;}
- MC=D;mcDraw();mcChecks();
+ MC=D;mcDraw();mcNow();mcChecks();
 }
 const mcAsset=D=>/^KXGOLD/.test(D.ticker||"")?["Gold","Gold"]:["Bitcoin","BTC"];
 function mcDraw(){
@@ -475,6 +494,30 @@ function mcDraw(){
  const n=(D.lots||[]).length,pn=(D.lots||[]).filter(l=>l.exit).length;
  $("#mcnote").textContent=`${D.ticker} · ${n} entries${n?` (${pn} closed)`:""}${D.skipped?" · skipped: "+D.skipped:""}${D.settled?" · settled":""}`;
 }
+function mcNow(){
+ const D=MC,S=D.series||[],last=S.length?S[S.length-1]:null,lots=D.lots||[],live=!D.settled&&!MCSEL;
+ const bidOf=side=>last?(side==="y"?last[4]:last[5]):null,mm=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
+ const op=lots.filter(l=>!l.exit),cl=lots.filter(l=>l.exit),held=op.reduce((a,l)=>a+l.qty,0);
+ const upnl=op.reduce((a,l)=>{const b=bidOf(l.side);return a+(b==null?0:(b-l.buy)*l.qty);},0);
+ const rpnl=cl.reduce((a,l)=>a+((l.exit_px??0)-l.buy)*l.qty,0);
+ const st=(k,v,sub,cl2)=>`<div class="stat"><span class="k">${k}</span><span class="v ${cl2||""}">${v}</span>${sub?`<span class="s">${sub}</span>`:""}</div>`;
+ const lead=last&&last[1]!=null?last[1]-D.strike:null;
+ $("#nowstats").innerHTML=
+  st("Market",`${ptTime(D.open_ts)}–${ptTime(D.open_ts+900)}`,`${esc(D.ticker)}${D.skipped?" · skipped: "+esc(D.skipped):""}${D.settled?" · settled":live?" · running":""}`)+
+  st("Minute",last?mm(last[0]):"—",live?"of 15:00":"")+
+  st(mcAsset(D)[0]+" vs strike",lead==null?"—":(lead>=0?"+":"−")+"$"+Math.abs(lead).toFixed(2),`strike $${D.strike.toLocaleString(undefined,{maximumFractionDigits:2})}`,lead==null?"":lead>=0?"pos":"neg")+
+  st("Loss chance now",live&&META.risk_now?esc(String(META.risk_now).split(" (")[0]):"—",live&&META.risk_now?esc(String(META.risk_now).replace(/^[^(]*/,"")):"")+
+  st("Holding",held?`${held.toLocaleString()} ${D.side==="n"?"NO":"YES"}`:"none",`${op.length} open entr${op.length===1?"y":"ies"} · ${(D.orders||[]).length} open orders`)+
+  st("P&L in this market",usd(Math.round((upnl+rpnl)*100)/100),`${usd(Math.round(rpnl*100)/100)} closed · ${usd(Math.round(upnl*100)/100)} open at the bid (before fees)`,cls(upnl+rpnl));
+ $("#nowlots").innerHTML=lots.length?"<tr><th class='l'>Entry</th><th class='l'>In at</th><th class='l'>Side</th><th>Qty</th><th>Buy</th><th>Stop</th><th>Bid now / exit</th><th class='l'>Status</th><th>P&amp;L (before fees)</th></tr>"+
+  lots.map((l,i)=>{const px=l.exit?l.exit_px:bidOf(l.side),pl=px==null?null:(px-l.buy)*l.qty;
+   return `<tr><td class="l">${i+1}</td><td class="l">${mm(l.in_s)}</td><td class="l">${l.side==="y"?"YES":"NO"}</td><td>${l.qty}</td><td>${c(l.buy)}</td><td>${c(l.stop)}</td><td>${c(px)}</td><td class="l">${l.exit?esc(l.exit)+" at "+mm(l.out_s??0):"open"}</td><td class="${cls(pl)}">${pl==null?"":usd(Math.round(pl*100)/100)}</td></tr>`;}).join("")
+  :"<tr><td class='l mut'>No entries in this market.</td></tr>";
+ const O=D.orders||[];
+ $("#noword").innerHTML=O.length?"<tr><th class='l'>Open order</th><th class='l'>Side</th><th>Qty</th><th>Price</th><th>Filled</th><th class='l'>For</th><th class='l'>Placed</th></tr>"+
+  O.map(o=>`<tr><td class="l">${esc(o.kind.replace("_"," "))}</td><td class="l">${o.side==="y"?"YES":"NO"}</td><td>${o.qty}</td><td>${o.price==null?"market":c(o.price)}</td><td>${o.filled||0}</td><td class="l">${esc(o.why)}</td><td class="l">${mm(o.placed_s)}</td></tr>`).join("")
+  :"<tr><td class='l mut'>No open orders.</td></tr>";
+}
 function mcChecks(){
  const D=MC,C=(D.checks||[]).slice(),byMin=new Map();
  C.forEach(c=>{const m=Math.floor(c.s/60);if(!byMin.has(m))byMin.set(m,[]);byMin.get(m).push(c);});
@@ -491,7 +534,13 @@ function mcChecks(){
 $("#mcchk").addEventListener("click",e=>{const tr=e.target.closest("tr.mcm");if(!tr)return;const m=+tr.dataset.m;MCOPEN.has(m)?MCOPEN.delete(m):MCOPEN.add(m);mcChecks();});
 $("#mcchk").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches("tr.mcm")){e.preventDefault();e.target.click();}});
 $("#mcsel").addEventListener("change",()=>{MCSEL=$("#mcsel").value;MCOPEN=new Set();mcLoad();});
-mcList().then(mcLoad);setInterval(()=>{if(!MCSEL)mcLoad();},3000);setInterval(mcList,30000);
+let VIEW="dashboard";
+function show(v){if(!["dashboard","live","settings"].includes(v))v="dashboard";VIEW=v;
+ document.querySelectorAll(".view").forEach(e=>e.hidden=e.dataset.view!==v);
+ document.querySelectorAll(".tabs a").forEach(a=>a.setAttribute("aria-selected",String(a.dataset.v===v)));
+ if(v==="settings"&&!SET)loadSettings(); if(v==="live"){mcList().then(mcLoad);}}
+window.addEventListener("hashchange",()=>show(location.hash.slice(1)));show(location.hash.slice(1));
+setInterval(()=>{if(VIEW==="live"&&!MCSEL)mcLoad();},3000);setInterval(()=>{if(VIEW==="live")mcList();},30000);
 
 </script>
 </body>

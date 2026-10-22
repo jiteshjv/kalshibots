@@ -638,7 +638,10 @@ class App:
         lots = [{"id": L.lot_id, "side": L.side, "qty": L.qty, "buy": L.buy, "stop": L.stop, "how": L.how,
                  "in_s": round(L.entry_ts - m.open_ts, 1), "exit": L.exit, "exit_px": L.exit_px,
                  "out_s": None if L.exit_ts is None else round(L.exit_ts - m.open_ts, 1)} for L in st.lots]
+        orders = [{"kind": o.kind, "side": o.side, "qty": o.qty, "price": o.price, "why": o.reason, "placed_s": o.placed_s,
+                   "filled": o.filled} for o in st.orders.values() if o.active]
         return {"ticker": m.ticker, "open_ts": m.open_ts, "strike": m.strike, "side": st.side, "skipped": st.skipped,
+                "orders": orders,
                 "settled": run.settled, "series": run.series, "checks": st.checks, "lots": lots,
                 "cfg": {"first_check_s": c.first_check_s, "last_entry_s": c.last_entry_s, "max_price": c.max_price,
                         "take_profit": c.take_profit, "risk_max": c.risk_max, "check_every_s": c.check_every_s}}

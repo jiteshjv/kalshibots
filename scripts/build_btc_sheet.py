@@ -8,7 +8,7 @@ def clean(o):
     if isinstance(o,list): return [clean(x) for x in o]
     if isinstance(o,dict): return {k:clean(v) for k,v in o.items()}
     return o
-late=lambda p:[f"{p}_66d",f"{p}_recent"]+([f"{p}_oct20"] if os.path.exists(f"results/{p}_oct20_markets.csv") else [])+[f"{p}_mon"]   # mon last: it wins on the overlap
+late=lambda p:[f"{p}_66d",f"{p}_recent"]+([f"{p}_oct20"] if os.path.exists(f"results/{p}_oct20_markets.csv") else [])+[f"{p}_mon"]+[f"{p}_{d}" for d in ("oct21","oct22") if os.path.exists(f"results/{p}_{d}_markets.csv")]   # mon wins on its overlap; oct21 (newest) last
 MODES={"mixed":("jh_off",late("v8_mixed")),"mixed_f":("jh_now",late("v8_mixed_f")),
        "mixed_l3":("jh_l3off",late("v9_l3")),"mixed_l3_f":("jh_l3",late("v9_l3_f")),
        "mixed_s25l3":("jh_s25l3off",late("v9_s25l3")),"mixed_s25l3_f":("jh_s25l3",late("v9_s25l3_f")),
@@ -17,8 +17,10 @@ MODES={"mixed":("jh_off",late("v8_mixed")),"mixed_f":("jh_now",late("v8_mixed_f"
        "equal_s25l3":("jh_eq_s25l3",late("v9_eq_s25l3")),"equal_s25l3_f":("jh_eq_s25l3_f",late("v9_eq_s25l3_f")),
        "mixed5":("jh_m5",late("v8_mixed5")),"mixed5_f":("jh_m5f",late("v8_mixed5_f")),
        "mixed_rec_f":("jh_j5L",late("v9_j5L")),"equal_rec_f":("jh_eqrecL",late("v9_eqrecL")),"mixed5_rec_f":("jh_m5recL",late("v9_m5recL")),
-       "mixed_rec_b":("jh_j5B",late("v9_j5B")),"equal_rec_b":("jh_eqrecB",late("v9_eqrecB")),"mixed5_rec_b":("jh_m5recB",late("v9_m5recB")),"equal_recfv_b":("jh_fvs2B",late("v9_fvs2B")),
-       "equal_recfv_f":("jh_fvs2L",late("v9_fvs2L"))}   # *L = long price history in the Oct folders; *_b = 3- to 14-day sweeps only       # recommended: 25% + 0.03% stop, 0.5% jump pause, NFP/CPI/FOMC hour skipped
+       "mixed_rec_b":("jh_j5B",late("v9_j5B")),"equal_rec_b":("jh_eqrecB",late("v9_eqrecB")),"mixed5_rec_b":("jh_m5recB",late("v9_m5recB")),"equal_recfv_b":("jh_fvs2Bt1",late("v9_fvs2Bt1")),
+       "equal_recfv_f":("jh_fvs2L",late("v9_fvs2L")),
+       "equal_recrisk_b":("jh_rkW5c",late("v9_rkW5c")),
+       "equal_recriskhb_b":("jh_rkHBl100",late("v9_rkHBl100"))}   # = the bot now on her real order book (asks, queue, stops), stops sold 100 ms after the trigger   # = the BTC paper bot from 2026-10-21: her risk <= 15%, no moneyness line, bids 1c/0.3c, 5 s wait, stop re-check, valid prices   # *L = long price history in the Oct folders; *_b = 3- to 14-day sweeps only       # recommended: 25% + 0.03% stop, 0.5% jump pause, NFP/CPI/FOMC hour skipped
 ONLY=sys.argv[2].split(",") if len(sys.argv)>2 else None
 import datetime as _dt; from zoneinfo import ZoneInfo as _Z
 _C=pd.read_csv("data_news/calendar.csv"); _ET=_Z("America/New_York")

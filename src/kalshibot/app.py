@@ -75,6 +75,7 @@ class MarketRun:
     skip_saved: bool = False
     blocks: dict = field(default_factory=dict)          # risk-guard block reason -> count (entries refused)
     prefetched: bool = False                            # next market's book/trades already subscribed (recording)
+    series: list = field(default_factory=list)          # per second [s, btc, ask_y, ask_n, bid_y, bid_n] (market chart)
 
 
 class App:
@@ -122,6 +123,8 @@ class App:
         self.server.on_kill = lambda: self.alerts.kill_switch("dashboard")
         self.server.on_rearm = self.rearm
         self.server.on_get_settings = self.settings_view
+        self.server.on_market = self.market_chart
+        self.server.on_markets = self.market_chart_list
         self.server.on_set_settings = self.update_settings
         if applied:
             log.info("dashboard settings applied over config.yaml: %s", ", ".join(applied))
@@ -345,6 +348,10 @@ class App:
             self._open_of[nxt] = m.close_ts
             await self.feed.set_tickers([m.ticker, nxt])
         self.broker.on_second(view, m.ticker)
+        if not run.series or run.series[-1][0] != view.s:
+            bp = None if view.btc is None or not math.isfinite(view.btc.price) else round(view.btc.price, 2)
+            run.series.append([view.s, bp, view.ask.get("y"),
+                               view.ask.get("n"), view.bid.get("y"), view.bid.get("n")])
         if self.switch == "kill":
             await self._submit_all(run, run.strat.flatten(view), view)
             if not self.idle and not run.strat.open_lots() and not self._selling(run):
@@ -428,7 +435,7 @@ class App:
                 except Exception as e:                       # keep trying next round
                     log.warning("settle %s: %s", t, e)
             for t in [t for t, r in self.runs.items() if r.settled and r is not self.current]:
-                self.runs.pop(t, None)
+                self._save_market_chart(self.runs.pop(t))
             await self._settle_journal(now)
 
     async def _settle_journal(self, now: float) -> None:
@@ -624,6 +631,64 @@ class App:
             self.alerts.error("fast_stop", e)
         finally:
             self._fast_busy = False
+
+    # ---------------------------------------------------------------- market chart (dashboard)
+    def _chart_of(self, run: MarketRun) -> dict:
+        m, st, c = run.market, run.strat, self.s.strategy
+        lots = [{"id": L.lot_id, "side": L.side, "qty": L.qty, "buy": L.buy, "stop": L.stop, "how": L.how,
+                 "in_s": round(L.entry_ts - m.open_ts, 1), "exit": L.exit, "exit_px": L.exit_px,
+                 "out_s": None if L.exit_ts is None else round(L.exit_ts - m.open_ts, 1)} for L in st.lots]
+        return {"ticker": m.ticker, "open_ts": m.open_ts, "strike": m.strike, "side": st.side, "skipped": st.skipped,
+                "settled": run.settled, "series": run.series, "checks": st.checks, "lots": lots,
+                "cfg": {"first_check_s": c.first_check_s, "last_entry_s": c.last_entry_s, "max_price": c.max_price,
+                        "take_profit": c.take_profit, "risk_max": c.risk_max, "check_every_s": c.check_every_s}}
+
+    def _chart_dir(self):
+        d = self.data / "markets"
+        d.mkdir(exist_ok=True)
+        return d
+
+    def _save_market_chart(self, run: MarketRun) -> None:
+        """Keep each finished market's chart (the dashboard's market dropdown); the newest 200 are kept."""
+        import gzip
+        import json
+        try:
+            d = self._chart_dir()
+            (d / f"{run.market.ticker}.json.gz").write_bytes(gzip.compress(json.dumps(self._finite(self._chart_of(run))).encode()))
+            for f in sorted(d.glob("*.json.gz"), key=lambda f: f.stat().st_mtime)[:-200]:
+                f.unlink()
+        except Exception as e:                               # a chart must never stop the bot
+            log.warning("market chart save: %s", e)
+
+    @staticmethod
+    def _finite(o):
+        """JSON for the browser: NaN / inf (no price yet) become null."""
+        if isinstance(o, float):
+            return o if math.isfinite(o) else None
+        if isinstance(o, list):
+            return [App._finite(x) for x in o]
+        if isinstance(o, dict):
+            return {k: App._finite(v) for k, v in o.items()}
+        return o
+
+    def market_chart(self, ticker: str | None = None) -> dict:
+        import gzip
+        import json
+        run = self.runs.get(ticker) if ticker else self.current
+        if run is not None:
+            return self._finite(self._chart_of(run))
+        f = self._chart_dir() / f"{ticker}.json.gz"
+        if ticker and "/" not in ticker and f.exists():
+            return json.loads(gzip.decompress(f.read_bytes()))
+        return {"error": "no such market"}
+
+    def market_chart_list(self) -> list[dict]:
+        live = [{"ticker": r.market.ticker, "open_ts": r.market.open_ts, "now": r is self.current}
+                for r in self.runs.values()]
+        seen = {x["ticker"] for x in live}
+        old = [{"ticker": f.name[:-8], "open_ts": f.stat().st_mtime - 960, "now": False}
+               for f in self._chart_dir().glob("*.json.gz") if f.name[:-8] not in seen]
+        return sorted(live + old, key=lambda x: -x["open_ts"])[:200]
 
     def _feed_down(self) -> bool:
         """The price feed reports an error (label skips with the cause, not the symptom)."""

@@ -114,6 +114,12 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
     </div>
   </div>
   <p>Every Kalshi BTC 15-minute market the bot traded, and every entry inside it. P&amp;L is realized (closed entries, fees included); open entries show as “open”. Times are Pacific. Click a market to see its entries. The page refreshes every 30 s.</p>
+  <section style="display:flex;flex-direction:column;gap:8px" id="mcsec">
+    <div class="rangebar"><h2>Market chart</h2><select id="mcsel" aria-label="Market" style="font:inherit;font-size:13px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg)"></select><span id="mcnote" class="mut" style="font-size:12px"></span></div>
+    <p style="font-size:12px">Top: Bitcoin (or gold) against the strike. The shaded band is "too close to buy" (the distance the entry rule needs at that moment); the bot only buys between the dashed lines. Bottom: the price of our side (the ask) with the buy ceiling, the 99.7&cent; target, and each entry with its stop. Dots: <span style="color:var(--gain)">&#9679;</span> in (bought) <span style="color:var(--loss)">&#9679;</span> out (sold, stopped or settled). Updates every 3 s.</p>
+    <div class="box chart"><svg id="mc" viewBox="0 0 1000 556" style="width:100%;height:auto" role="img" aria-label="Bitcoin against the strike and our side's price for the selected market"></svg></div>
+    <div class="box"><table id="mcchk"></table></div>
+  </section>
   <div class="controls" aria-label="Date range">
     <label for="d0">From<input type="date" id="d0"></label>
     <label for="d1">To<input type="date" id="d1"></label>
@@ -302,7 +308,7 @@ function status(){
  if(m.realized_today_utc!=null)parts.push(`today (UTC) ${col(m.realized_today_utc)}`);
  if(m.open_lots!=null)parts.push(`${m.open_lots} open entr${m.open_lots===1?"y":"ies"}`);
  if(m.open_orders!=null)parts.push(`${m.open_orders} open order${m.open_orders===1?"":"s"}`);
- for(const [k,v] of Object.entries(m)){if(["mode","state","kill","realized_today_utc","open_lots","open_orders","generated_ts","generated_pt","note","entry_rule"].includes(k)||v==null||typeof v==="object")continue;parts.push(`${esc(k.replace(/_/g," "))} ${esc(v)}`);}
+ for(const [k,v] of Object.entries(m)){if(["mode","state","kill","realized_today_utc","open_lots","open_orders","generated_ts","generated_pt","note","entry_rule","title","updated"].includes(k)||v==null||typeof v==="object")continue;parts.push(`${esc(k.replace(/_/g," "))} ${esc(v)}`);}
  if(m.generated_pt)parts.push(`<span class="mut">data from ${esc(m.generated_pt)}${age!=null&&age>120?` (${Math.round(age/60)} min old)`:""}</span>`);
  if(m.note)parts.push(`<span class="mut">${esc(m.note)}</span>`);
  $("#status").innerHTML=parts.join(" · ")||'<span class="mut">no status</span>';
@@ -413,6 +419,80 @@ $("#setform").addEventListener("click",e=>{const b=e.target.closest("[data-reset
 $("#gosettings").addEventListener("click",()=>{const b=$("#setbox");b.open=true;if(!SET)loadSettings();b.scrollIntoView({behavior:"smooth",block:"start"});});
 $("#setbox").addEventListener("toggle",()=>{if($("#setbox").open&&!SET)loadSettings();});
 load();setInterval(load,30000);
+// ---------------------------------------------------------------- market chart (market.json / markets.json)
+let MC=null,MCSEL="",MCOPEN=new Set();
+const ptTime=ts=>new Date(ts*1000).toLocaleTimeString("en-US",{timeZone:"America/Los_Angeles",hour:"numeric",minute:"2-digit"});
+async function mcList(){
+ let L;try{L=await (await fetch("markets.json",{cache:"no-store"})).json();}catch(e){return;}
+ if(!Array.isArray(L))return;
+ const sel=$("#mcsel"),cur=sel.value;
+ sel.innerHTML=L.map(x=>{const t0=x.open_ts;return `<option value="${x.now?"":esc(x.ticker)}">${t0?ptTime(t0)+"–"+ptTime(t0+900)+" PT":esc(x.ticker)}${x.now?" (now)":""}</option>`;}).join("");
+ if([...sel.options].some(o=>o.value===cur))sel.value=cur;
+}
+async function mcLoad(){
+ let D;try{D=await (await fetch("market.json"+(MCSEL?"?t="+encodeURIComponent(MCSEL):""),{cache:"no-store"})).json();}catch(e){return;}
+ if(!D||D.error||!D.ticker){$("#mc").innerHTML=`<text x="500" y="270" text-anchor="middle" style="fill:var(--muted);font-size:14px">${esc(D&&D.error||"no market yet")}</text>`;$("#mcchk").innerHTML="";return;}
+ MC=D;mcDraw();mcChecks();
+}
+const mcAsset=D=>/^KXGOLD/.test(D.ticker||"")?["Gold","Gold"]:["Bitcoin","BTC"];
+function mcDraw(){
+ const [AN,AS]=mcAsset(MC);const D=MC,W=1000,L=78,R=150,X=s=>L+s/900*(W-L-R),S=D.series||[],K=D.strike,cfg=D.cfg||{};
+ const now=D.settled?null:(S.length?S[S.length-1][0]:null);
+ const ck=(D.checks||[]).filter(c=>c.need_usd!=null);
+ // top panel: BTC vs strike
+ const t0=24,t1=230; let lo=K,hi=K;
+ S.forEach(r=>{if(r[1]!=null){lo=Math.min(lo,r[1]);hi=Math.max(hi,r[1]);}});
+ ck.forEach(c=>{lo=Math.min(lo,K-c.need_usd);hi=Math.max(hi,K+c.need_usd);});
+ const pad=Math.max((hi-lo)*0.08,5);lo-=pad;hi+=pad;const Y=v=>t1-(v-lo)/(hi-lo)*(t1-t0);
+ let g=`<text x="${L}" y="16" style="fill:var(--fg);font-size:13px;font-weight:600">${AN} vs strike</text>`;
+ for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4;g+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" style="stroke:var(--line)"/><text x="${L-6}" y="${Y(v)+4}" text-anchor="end" style="fill:var(--muted);font-size:11px">$${Math.round(v).toLocaleString()}</text>`;}
+ if(ck.length){const up=ck.map(c=>`${X(c.s)},${Y(K+c.need_usd)}`),dn=ck.slice().reverse().map(c=>`${X(c.s)},${Y(K-c.need_usd)}`);
+  g+=`<polygon points="${up.concat(dn).join(" ")}" style="fill:var(--loss);opacity:.09"/><text x="${X(ck[0].s)+4}" y="${t0+12}" style="fill:var(--loss);font-size:11px">too close to buy</text>`;}
+ [cfg.first_check_s,cfg.last_entry_s].forEach(s=>{if(s!=null)g+=`<line x1="${X(s)}" x2="${X(s)}" y1="${t0}" y2="530" style="stroke:var(--muted);stroke-dasharray:3 4"/>`;});
+ g+=`<line x1="${L}" x2="${W-R}" y1="${Y(K)}" y2="${Y(K)}" style="stroke:var(--muted);stroke-dasharray:5 4"/><text x="${W-R+6}" y="${Y(K)+4}" style="fill:var(--fg);font-size:12px">strike $${K.toLocaleString(undefined,{maximumFractionDigits:2})}</text>`;
+ const bp=S.filter(r=>r[1]!=null).map(r=>`${X(r[0])},${Y(r[1])}`);
+ if(bp.length){g+=`<polyline points="${bp.join(" ")}" style="fill:none;stroke:var(--accent);stroke-width:1.6"/>`;
+  const last=S.filter(r=>r[1]!=null).slice(-1)[0],d=last[1]-K;
+  g+=`<circle cx="${X(last[0])}" cy="${Y(last[1])}" r="3.5" style="fill:var(--accent)"/><text x="${Math.min(X(last[0])+8,W-R-150)}" y="${Y(last[1])-8}" style="fill:var(--fg);font-size:12px;font-weight:600">${AS} $${Math.round(last[1]).toLocaleString()} · ${d>=0?"+":"−"}$${Math.abs(d).toFixed(2)} vs strike</text>`;}
+ // bottom panel: our side's ask
+ const side=D.side||((D.checks||[]).slice(-1)[0]||{}).side||"y",ix=side==="y"?2:3,sn=side==="y"?"YES":"NO";
+ const b0=290,b1=510; const px=S.filter(r=>r[ix]!=null);
+ let plo=0.4;px.forEach(r=>{plo=Math.min(plo,r[ix]-0.05);});(D.lots||[]).forEach(l=>{if(l.side===side)plo=Math.min(plo,l.stop-0.05,(l.exit_px??1)-0.05);});plo=Math.max(0,Math.floor(plo*10)/10);
+ const P=v=>b1-(v-plo)/(1-plo)*(b1-b0);
+ g+=`<text x="${L}" y="${b0-12}" style="fill:var(--fg);font-size:13px;font-weight:600">${sn} price (cost to buy)</text>`;
+ for(let v=plo;v<=1.0001;v+=0.2){g+=`<line x1="${L}" x2="${W-R}" y1="${P(v)}" y2="${P(v)}" style="stroke:var(--line)"/><text x="${L-6}" y="${P(v)+4}" text-anchor="end" style="fill:var(--muted);font-size:11px">${Math.round(v*100)}¢</text>`;}
+ if(cfg.take_profit)g+=`<line x1="${L}" x2="${W-R}" y1="${P(cfg.take_profit)}" y2="${P(cfg.take_profit)}" style="stroke:var(--gain);stroke-dasharray:4 3"/><text x="${W-R+6}" y="${P(cfg.take_profit)+2}" style="fill:var(--gain);font-size:11.5px">target ${(cfg.take_profit*100).toFixed(1)}¢</text>`;
+ if(cfg.max_price)g+=`<line x1="${L}" x2="${W-R}" y1="${P(cfg.max_price)}" y2="${P(cfg.max_price)}" style="stroke:var(--warn);stroke-dasharray:4 3"/><text x="${W-R+6}" y="${P(cfg.max_price)+14}" style="fill:var(--warn);font-size:11.5px">ceiling ${(cfg.max_price*100).toFixed(1)}¢</text>`;
+ if(px.length){g+=`<polyline points="${px.map(r=>`${X(r[0])},${P(r[ix])}`).join(" ")}" style="fill:none;stroke:var(--fg);stroke-width:1.3"/>`;
+  const l=px[px.length-1];g+=`<circle cx="${X(l[0])}" cy="${P(l[ix])}" r="3.5" style="fill:var(--fg)"/><text x="${Math.min(X(l[0])+8,W-R-80)}" y="${P(l[ix])+4}" style="fill:var(--fg);font-size:12px;font-weight:600">${sn} ${Math.round(l[ix]*100)}¢</text>`;}
+ (D.lots||[]).filter(l=>l.side===side).forEach(l=>{const xe=l.out_s!=null?l.out_s:(now??900);
+  g+=`<line x1="${X(l.in_s)}" x2="${X(xe)}" y1="${P(l.stop)}" y2="${P(l.stop)}" style="stroke:var(--loss);stroke-width:1;opacity:.55;stroke-dasharray:2 2"/>`;
+  g+=`<circle cx="${X(l.in_s)}" cy="${P(l.buy)}" r="3.5" style="fill:var(--gain)"><title>in ${l.qty} @ ${(l.buy*100).toFixed(1)}¢ (stop ${(l.stop*100).toFixed(1)}¢)</title></circle>`;
+  if(l.exit&&l.out_s!=null&&l.exit_px!=null)g+=`<circle cx="${X(l.out_s)}" cy="${P(l.exit_px)}" r="3.5" style="fill:var(--loss)"><title>out (${esc(l.exit)}) @ ${(l.exit_px*100).toFixed(1)}¢</title></circle>`;});
+ if(now!=null)g+=`<line x1="${X(now)}" x2="${X(now)}" y1="${t0}" y2="${b1}" style="stroke:var(--loss);opacity:.6"/><text x="${X(now)}" y="${b1+36}" text-anchor="middle" style="fill:var(--loss);font-size:11px;font-weight:600">now</text>`;
+ for(let m=0;m<=15;m+=3)g+=`<text x="${X(m*60)}" y="${b1+20}" text-anchor="middle" style="fill:var(--muted);font-size:11px">${m} min</text>`;
+ $("#mc").innerHTML=g;
+ const n=(D.lots||[]).length,pn=(D.lots||[]).filter(l=>l.exit).length;
+ $("#mcnote").textContent=`${D.ticker} · ${n} entries${n?` (${pn} closed)`:""}${D.skipped?" · skipped: "+D.skipped:""}${D.settled?" · settled":""}`;
+}
+function mcChecks(){
+ const D=MC,C=(D.checks||[]).slice(),byMin=new Map();
+ C.forEach(c=>{const m=Math.floor(c.s/60);if(!byMin.has(m))byMin.set(m,[]);byMin.get(m).push(c);});
+ const f=(v,d)=>v==null?"":v.toFixed(d);
+ let h=`<tr><th class='l'>Time (PT)</th><th class='l'>Min</th><th>${mcAsset(D)[0]}</th><th class='l'>Side</th><th>Price</th><th>Distance</th><th>Needed</th><th>Z</th><th>Loss chance</th><th class='l'>Checks</th><th class='l'>Decision</th></tr>`;
+ [...byMin.keys()].sort((a,b)=>b-a).forEach(m=>{const rs=byMin.get(m),l=rs[rs.length-1],buys=rs.filter(c=>/^BUY/.test(c.why)).length;
+  const cnt={};rs.forEach(c=>{const k=c.why.replace(/^BUY.*/,"BUY");cnt[k]=(cnt[k]||0)+1;});const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${k} ${v}`).join(" · ");
+  const row=c=>`<td>${c.btc==null?"":"$"+c.btc.toLocaleString()}</td><td class="l">${c.side==="y"?"YES":c.side==="n"?"NO":""}</td><td>${c.px==null?"":Math.round(c.px*100)+"¢"}</td><td>${c.dist==null?"":f(c.dist,3)+"%"}</td><td>${c.need==null?"":f(c.need,3)+"%"}</td><td>${f(c.z,2)}</td><td>${c.risk==null?"":(c.risk*100).toFixed(1)+"%"}</td>`;
+  const o=MCOPEN.has(m);
+  h+=`<tr class="mk mcm" data-m="${m}" tabindex="0" style="cursor:pointer"><td class="l">${o?"▾":"▸"} ${ptTime(D.open_ts+m*60)}</td><td class="l">${m}–${m+1}</td>${row(l)}<td class="l">${rs.length} checks · ${buys} bought</td><td class="l">${esc(top)}</td></tr>`;
+  if(o)rs.slice().reverse().forEach(c=>{h+=`<tr class="sub"><td class="l mut">${ptTime(D.open_ts+c.s).replace(/ [AP]M/,"")}:${String(c.s%60).padStart(2,"0")}</td><td class="l mut">${Math.floor(c.s/60)}:${String(c.s%60).padStart(2,"0")}</td>${row(c)}<td></td><td class="l">${esc(c.why)}</td></tr>`;});});
+ $("#mcchk").innerHTML=C.length?h:"<tr><td class='l mut'>No entry checks yet in this market.</td></tr>";
+}
+$("#mcchk").addEventListener("click",e=>{const tr=e.target.closest("tr.mcm");if(!tr)return;const m=+tr.dataset.m;MCOPEN.has(m)?MCOPEN.delete(m):MCOPEN.add(m);mcChecks();});
+$("#mcchk").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches("tr.mcm")){e.preventDefault();e.target.click();}});
+$("#mcsel").addEventListener("change",()=>{MCSEL=$("#mcsel").value;MCOPEN=new Set();mcLoad();});
+mcList().then(mcLoad);setInterval(()=>{if(!MCSEL)mcLoad();},3000);setInterval(mcList,30000);
+
 </script>
 </body>
 </html>

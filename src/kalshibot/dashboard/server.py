@@ -9,6 +9,8 @@
                            If the env var is unset the endpoint answers 403 (disabled).
     POST /disarm           same, creates `<data_dir>/<disarm_file>` (no new entries; positions close normally, then idle)
     POST /rearm            same token; asks the app (on_rearm) to delete the switch files and trade again (only when idle)
+    GET  /market.json      one market's chart: per-second BTC / bids / asks, every entry check, lots (?t=<ticker>, default: now)
+    GET  /markets.json     the markets with a chart (running + the last 200 finished)
     GET  /settings.json    the changeable settings (current values, limits, labels) - needs the running bot
     POST /settings         same token; JSON body {"strategy.size_late": 10, ...}; saved to <data_dir>/settings.json
 
@@ -58,6 +60,8 @@ class DashboardServer:
         self.on_rearm: Callable[[], tuple[bool, str]] | None = None   # app.rearm
         self.on_kill: Callable[[], None] | None = None  # optional callback (e.g. alert) after the kill file is made
         self.on_get_settings: Callable[[], dict] | None = None              # app.settings_view
+        self.on_market: Callable[[str | None], dict] | None = None          # app.market_chart (one market's chart)
+        self.on_markets: Callable[[], list] | None = None                   # app.market_chart_list
         self.on_set_settings: Callable[[dict], tuple[bool, str, list]] | None = None   # app.update_settings
 
     # ------------------------------------------------------------------ lifecycle
@@ -149,6 +153,16 @@ def _make_handler(srv: DashboardServer):
                 self._send(200, srv.dashboard_bytes())
             elif path == "/health":
                 self._json(200, srv.health())
+            elif path in ("/market.json", "/markets.json"):
+                cb = srv.on_market if path == "/market.json" else srv.on_markets
+                if cb is None:
+                    return self._json(409, {"ok": False, "error": "the market chart needs the running bot"})
+                from urllib.parse import parse_qs
+                q = parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
+                try:
+                    self._json(200, cb(q.get("t", [None])[0]) if path == "/market.json" else cb())
+                except Exception as e:  # noqa: BLE001
+                    self._json(500, {"ok": False, "error": str(e)[:200]})
             elif path == "/settings.json":
                 if srv.on_get_settings is None:
                     return self._json(409, {"ok": False, "error": "settings need the running bot"})

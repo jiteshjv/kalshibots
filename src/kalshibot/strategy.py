@@ -113,6 +113,9 @@ class Strategy:
         self.spread_blocks = 0                 # ... or the spread was too wide
         self.risk_blocks = 0                   # checks where the risk number was above risk_max
         self.fast_stop_n = 0                   # stops triggered between seconds (fast_stops)
+        self.checks: list[dict] = []           # every entry check of this market (dashboard: checks by minute)
+        self._why = ""                         # why the current entry check did not buy (or what it did)
+        self._rz: tuple | None = None          # (ts, risk, z, sd $/min, minutes left) of the last risk() call
         self.stop_wait: dict[str, tuple[int, int]] = {}   # lot_id -> (market second it may retry, failed tries): a stop
         #   sale that found no buyers waits 1, 2, then 4 s before the next try (no order storm on an empty book)
 
@@ -223,7 +226,9 @@ class Strategy:
             return None
         left = max(900 - int(ts - m.open_ts) - c.risk_clock_adj_s, 1) / 60
         z = abs(price - m.strike) / (max(sds) * math.sqrt(left))
-        return 0.5 * math.erfc(z / math.sqrt(2))
+        rk = 0.5 * math.erfc(z / math.sqrt(2))
+        self._rz = (ts, rk, z, max(sds), left)
+        return rk
 
     def end_market(self, yes_won: bool) -> list[Lot]:
         """Settle every open lot at $1/$0 (no fee). Resting orders are the broker's to cancel."""
@@ -361,17 +366,22 @@ class Strategy:
 
         # D. entries
         check = (not self.no_entries and c.first_check_s <= s <= c.last_entry_s and s % c.check_every_s == 0)
+        self._why = ("disarmed: no new entries" if self.no_entries else "outside entry window") if not check else ""
         if check and (v.btc is None or v.btc.stale):
             self.stale_blocks += 1
-            check = False
+            check, self._why = False, "price feed stale"
         if check and self.jumped(v.ts):
             self.jump_blocks += 1
-            check = False
+            check, self._why = False, "sharp-move pause"
         if check:
             r = self._entries(v)
+            if s % c.check_every_s == 0:
+                self._log_check(v)
             if r is None:                       # market skipped by the sweep filters
                 return out + self._skip_cancels()
             out += r
+        elif s % c.check_every_s == 0:
+            self._log_check(v)
 
         # TP: one resting sell per open lot, once its buy has filled (live: Kalshi confirms a market buy's fill a moment
         # later; a sell placed before that is refused by the broker's reduce-only check)
@@ -436,6 +446,7 @@ class Strategy:
         lots = self.open_lots()
         held = sum(L.qty for L in lots)
         if held >= c.max_held:
+            self._why = "max held"
             return []
         K = self.market.strike
         p = v.btc.price
@@ -444,38 +455,74 @@ class Strategy:
         if th > 0 and (self.best is None or abs(m) / th > self.best[0]):
             self.best = (abs(m) / th, abs(m), th, s)
         s2: Side | None = "y" if m >= th else ("n" if -m >= th else None)
-        if not s2 or not (self.side is None or s2 == self.side or not lots):
+        if not s2:
+            self._why = "moneyness"
+            return []
+        if not (self.side is None or s2 == self.side or not lots):
+            self._why = "holding the other side"
             return []
         if c.risk_max > 0:
             rk = self.risk(v.ts, p)
             if rk is None or rk > c.risk_max:
                 self.risk_blocks += 1
+                self._why = "risk"
                 return []
         if c.filters and self.side is None:
             why = self.skip_reason(v.ts, s2, p)
             if why:
                 self.skipped = why
+                self._why = f"market skipped: {why}"
                 return None
         if v.book is not None:
             sp = v.book.spread(s2)
             if sp is not None and sp > c.max_spread + _EPS:
                 self.spread_blocks += 1
+                self._why = "spread too wide"
                 return []
         e = v.ask.get(s2)
         if e is None or not e < c.max_price:
             self.price_blocks += 1
+            self._why = "price at/above ceiling" if e is not None else "no ask"
             return []
         sz = min(self._size(s), c.max_held - held)
         if c.limit_offset > 0:
             if self.pending is not None:
+                self._why = "bid still waiting"
                 return []
             if self.side and s2 != self.side:
                 self.lastp = None
             it = self._intent("limit_buy", s2, sz, tick_floor(e - c.limit_offset) if c.tick_prices else round(e - c.limit_offset, 4), None, "entry", s,
                               expires_s=c.entry_wait_s or c.check_every_s)
             self.pending = it.client_id
+            self._why = f"BUY: bid {it.price * 100:g}c x {sz}"
             return [it]
+        self._why = f"BUY: market {e * 100:g}c x {sz}"
         return self._book_market_entry(v, s2, sz, e, "entry", True)
+
+    def _log_check(self, v: SecondView) -> None:
+        """One row per entry check (dashboard): BTC, the side it leans to, its ask, distance to the strike, the distance
+        needed (moneyness line and/or the distance where risk = risk_max), Z, loss chance and the decision."""
+        c, m = self.cfg, self.market
+        if m is None:
+            return
+        p = v.btc.price if v.btc is not None and math.isfinite(v.btc.price) else None
+        row = {"s": v.s, "btc": None if p is None else round(p, 2), "why": self._why or "no signal"}
+        if p is not None:
+            mny = (p - m.strike) / m.strike
+            side = "y" if mny >= 0 else "n"
+            th = self.threshold(v.s) if c.mny_start > 0 else 0.0
+            need = th * m.strike
+            if self._rz is None or self._rz[0] != v.ts:
+                self.risk(v.ts, p)
+            if self._rz is not None and self._rz[0] == v.ts:
+                _, rk, z, sd, left = self._rz
+                row.update(z=round(z, 2), risk=round(rk, 4))
+                if c.risk_max > 0:                 # distance where risk = risk_max
+                    from statistics import NormalDist
+                    need = max(need, NormalDist().inv_cdf(1 - c.risk_max) * sd * math.sqrt(left))
+            row.update(side=side, px=v.ask.get(side), dist=round(abs(mny) * 100, 4),
+                       need_usd=round(need, 2), need=round(need / m.strike * 100, 4))
+        self.checks.append(row)
 
     # ------------------------------------------------------------------ broker callbacks
     def on_fill(self, f: Fill) -> None:

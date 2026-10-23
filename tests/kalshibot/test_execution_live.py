@@ -335,7 +335,7 @@ def test_no_side_tp_listed_as_yes_buy_is_kept():
     assert (e.kind, e.side, e.price) == ("limit_buy", "n", 0.935)
     b2, _ = mk(r)                                   # a fresh process shutting down: only the entry bid goes
     run(b2.cancel_entries())
-    assert r.cancelled == ["E2"]
+    assert r.cancelled + [i for bt in r.batch for i in bt] == ["E2"]
 
 
 def test_shutdown_keeps_inflight_market_buy_and_records_its_fill():
@@ -589,3 +589,31 @@ def test_shutdown_cancels_leftover_entry_bids_even_if_positions_fail():
     run(b.cancel_entries())
     sent = rest.cancelled + [i for bt in rest.batch for i in bt]
     assert "OLD1" in sent and "OLD2" not in sent        # the entry bid is cancelled, the take-profit keeps working
+
+
+def test_shutdown_finishes_quickly_when_kalshi_is_slow():
+    import time as _t
+    rest = FakeRest()
+    b, _ = mk(rest)
+    b.inline = False                                     # real threads, so the time limits apply
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
+    rest.resting = [{"order_id": "OLD1", "client_order_id": "old-entry", "ticker": M.ticker, "side": "yes",
+                     "action": "buy", "yes_price_dollars": "0.9100", "remaining_count_fp": "10.00"}]
+    def slow_positions():
+        _t.sleep(3)                                      # a stuck positions request
+    rest.positions = slow_positions
+    import kalshibot.execution.live as lv
+    real_wait = lv.asyncio.wait_for
+    async def quick_wait(aw, limit):                     # shrink the limits so the test is fast
+        return await real_wait(aw, min(limit, 0.3))
+    lv.asyncio.wait_for = quick_wait
+    try:
+        async def timed():
+            t0 = _t.perf_counter()
+            await b.cancel_entries()
+            return _t.perf_counter() - t0                # the shutdown step itself (the stuck thread ends later)
+        took = run(timed())
+    finally:
+        lv.asyncio.wait_for = real_wait
+    sent = [i for bt in rest.batch for i in bt]
+    assert took < 2 and "X1" in sent and "OLD1" in sent  # positions timed out, leftovers still cancelled, fast

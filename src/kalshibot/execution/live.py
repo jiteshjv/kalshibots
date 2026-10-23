@@ -444,53 +444,70 @@ class LiveBroker(BrokerBase):
         return sum(self._finish(o, "cancelled") for o in mine)
 
     async def cancel_entries(self) -> int:
-        """Shutdown: cancel our resting buys AND any resting buy the exchange still lists (an earlier run's);
-        resting sells (take-profits) are left working. First ONE batch request for every tracked resting buy plus every
-        unconfirmed cancel (a slow exchange cannot use up the shutdown time one order at a time); then the
-        one-by-one pass and the exchange listing below catch anything the batch missed; pending cancels last."""
-        first = {o.exchange_id: o.client_id for o in self.open_orders()
-                 if o.action == "buy" and o.tif != "ioc" and o.exchange_id}
+        """Shutdown: cancel our resting buys AND any resting buy the exchange still lists (an earlier run's); resting
+        sells (take-profits) are left working. Bounded so it always finishes inside the service stop timeout (120 s)
+        even when Kalshi is slow: one batch for our tracked buys + unconfirmed cancels (<= 20 s), one listing of resting
+        orders (<= 15 s), one positions lookup (<= 8 s; unknown -> take-profits told apart by price), one batch for
+        the leftovers (<= 20 s). Anything not confirmed stays in pending_cancels (logged)."""
+        async def bounded(fn, *a, limit: float):
+            return await asyncio.wait_for(self._call(fn, *a), limit)
+
+        mine = [o for o in self.open_orders() if o.action == "buy" and o.tif != "ioc"]
+        first = {o.exchange_id: o.client_id for o in mine if o.exchange_id}
+        n = 0
         batch = sorted(set(first) | set(self.pending_cancels))
         if batch:
             try:
-                reply = await self._call(self.rest.batch_cancel, batch)
-                bad = self._batch_unconfirmed(reply, batch)
-                for oid in batch:
-                    if oid not in bad:
-                        self.pending_cancels.pop(oid, None)
-                for st in self.open_orders():             # confirmed ones end here; failed ones stay open for the
-                    if st.exchange_id in first and st.exchange_id not in bad:   # one-by-one pass below
-                        self._finish(st, "cancelled")
-            except Exception as e:                        # noqa: BLE001 - the one-by-one pass follows
+                bad = self._batch_unconfirmed(await bounded(self.rest.batch_cancel, batch, limit=20), batch)
+            except Exception as e:                        # noqa: BLE001 - timeout / error: none confirmed
                 self.errors.append(f"shutdown batch_cancel: {e}")
-        n = len(first) - len([o for o in self.open_orders() if o.exchange_id in first])
-        n += await super().cancel_entries()
-        held: dict[str, Side] | None = None              # ticker -> side held (a resting order is read against it)
-        for k in range(3):                                # its own step: a positions failure must not skip the listing
+                bad = {oid: str(e)[:200] for oid in batch}
+            for oid in batch:
+                if oid in bad:
+                    self._cancel_unconfirmed(oid, first.get(oid) or self.pending_cancels.get(oid, oid), bad[oid])
+                else:
+                    self.pending_cancels.pop(oid, None)
+        for o in mine:                                    # locally done; unconfirmed ones are tracked as pending
+            if self._finish(o, "cancelled"):
+                n += 1
+        try:                                              # leftovers from an earlier run: list first ...
+            rows = _rows(await bounded(self.rest.orders, "resting", limit=15), "orders")
+        except Exception as e:                            # noqa: BLE001
+            self.errors.append(f"cancel_entries list: {e}")
+            rows = []
+        held: dict[str, Side] | None = None              # ... then positions once (to read sells against the held side)
+        if rows:
             try:
                 h: dict[str, Side] = {}
-                for p in _rows(await self._call(self.rest.positions), "market_positions", "positions"):
+                for p in _rows(await bounded(self.rest.positions, limit=8), "market_positions", "positions"):
                     pos = _num(p, "position_fp", "position")
                     if pos:
                         h[p.get("ticker") or p.get("market_ticker") or ""] = "y" if pos > 0 else "n"
                 held = h
-                break
             except Exception as e:                        # noqa: BLE001
                 self.errors.append(f"cancel_entries positions: {e}")
-                if k < 2 and not self.inline:
-                    await asyncio.sleep(0.5)
-        try:
-            for o in _rows(await self._call(self.rest.orders, "resting"), "orders"):
-                tk = o.get("ticker") or o.get("market_ticker") or ""
-                if held is None and _looks_like_tp(o):   # positions unknown: a 99.7c take-profit is told apart by
-                    continue                              # price and left working; everything else is an entry bid
-                st = self._adopt_order(o, tk, None if held is None else held.get(tk))
-                if st is not None and st.action == "buy" and await self.cancel(st.client_id):
+        left: dict[str, str] = {}
+        for o in rows:
+            tk = o.get("ticker") or o.get("market_ticker") or ""
+            if held is None and _looks_like_tp(o):       # positions unknown: a 99.7c take-profit is told apart by
+                continue                                  # price and left working; everything else is an entry bid
+            st = self._adopt_order(o, tk, None if held is None else held.get(tk))
+            if st is not None and st.action == "buy" and st.exchange_id and st.exchange_id not in first:
+                left[st.exchange_id] = st.client_id
+                if self._finish(st, "cancelled"):
                     n += 1
-        except Exception as e:                            # noqa: BLE001
-            self.errors.append(f"cancel_entries list: {e}")
+        if left:
+            ids = sorted(left)
+            try:
+                bad = self._batch_unconfirmed(await bounded(self.rest.batch_cancel, ids, limit=20), ids)
+            except Exception as e:                        # noqa: BLE001
+                self.errors.append(f"shutdown leftover batch_cancel: {e}")
+                bad = {oid: str(e)[:200] for oid in ids}
+            for oid, err in bad.items():
+                self._cancel_unconfirmed(oid, left[oid], err)
         if self.pending_cancels:
-            await self.retry_pending_cancels()
+            log.error("shutdown: %d cancel(s) not confirmed by Kalshi: %s", len(self.pending_cancels),
+                      ", ".join(f"{c} ({o})" for o, c in self.pending_cancels.items()))
         return n
 
     async def on_disconnect(self) -> int:

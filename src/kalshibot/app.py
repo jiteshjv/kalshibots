@@ -75,7 +75,8 @@ class MarketRun:
     skip_saved: bool = False
     blocks: dict = field(default_factory=dict)          # risk-guard block reason -> count (entries refused)
     prefetched: bool = False                            # next market's book/trades already subscribed (recording)
-    series: list = field(default_factory=list)          # per second [s, btc, ask_y, ask_n, bid_y, bid_n] (market chart)
+    series: list = field(default_factory=list)          # per second [s, btc, ask_y, ask_n, bid_y, bid_n, vol_y, vol_n]
+                                                        #   (market chart; vol = contracts whose taker bought YES / NO)
 
 
 class App:
@@ -350,8 +351,10 @@ class App:
         self.broker.on_second(view, m.ticker)
         if not run.series or run.series[-1][0] != view.s:
             bp = None if view.btc is None or not math.isfinite(view.btc.price) else round(view.btc.price, 2)
+            vy = round(sum(t.qty for t in view.trades if t.taker_side == "y"), 2)
+            vn = round(sum(t.qty for t in view.trades if t.taker_side == "n"), 2)
             run.series.append([view.s, bp, view.ask.get("y"),
-                               view.ask.get("n"), view.bid.get("y"), view.bid.get("n")])
+                               view.ask.get("n"), view.bid.get("y"), view.bid.get("n"), vy, vn])
         if self.switch == "kill":
             await self._submit_all(run, run.strat.flatten(view), view)
             if not self.idle and not run.strat.open_lots() and not self._selling(run):
@@ -640,8 +643,10 @@ class App:
                  "out_s": None if L.exit_ts is None else round(L.exit_ts - m.open_ts, 1)} for L in st.lots]
         orders = [{"kind": o.kind, "side": o.side, "qty": o.qty, "price": o.price, "why": o.reason, "placed_s": o.placed_s,
                    "filled": o.filled} for o in st.orders.values() if o.active]
+        bk = self.feed.book(m.ticker) if run is self.current and hasattr(self.feed, "book") else None
+        book = None if bk is None else {"y": [list(x) for x in bk.yes_bids[:10]], "n": [list(x) for x in bk.no_bids[:10]]}
         return {"ticker": m.ticker, "open_ts": m.open_ts, "strike": m.strike, "side": st.side, "skipped": st.skipped,
-                "orders": orders,
+                "orders": orders, "book": book,
                 "settled": run.settled, "series": run.series, "checks": st.checks, "lots": lots,
                 "cfg": {"first_check_s": c.first_check_s, "last_entry_s": c.last_entry_s, "max_price": c.max_price,
                         "take_profit": c.take_profit, "risk_max": c.risk_max, "check_every_s": c.check_every_s}}

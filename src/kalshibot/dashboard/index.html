@@ -171,11 +171,14 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
     <div class="stats" id="nowstats"></div>
     <div class="box"><table id="nowlots"></table></div>
     <div class="box"><table id="noword"></table></div>
+    <h2 style="margin-top:8px">Order book</h2>
+    <p id="booknote" style="font-size:12px"></p>
+    <div class="box" style="max-width:560px"><table id="nowbook"></table></div>
   </section>
   <section style="display:flex;flex-direction:column;gap:8px" id="mcsec">
     <div class="rangebar"><h2>Market chart</h2><select id="mcsel" aria-label="Market" style="font:inherit;font-size:13px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg)"></select><span id="mcnote" class="mut" style="font-size:12px"></span></div>
-    <p style="font-size:12px">Top: Bitcoin (or gold) against the strike. The shaded band is "too close to buy" (the distance the entry rule needs at that moment); the bot only buys between the dashed lines. Bottom: the price of our side (the ask) with the buy ceiling, the 99.7&cent; target, and each entry with its stop. Dots: <span style="color:var(--gain)">&#9679;</span> in (bought) <span style="color:var(--loss)">&#9679;</span> out (sold, stopped or settled). Updates every 3 s.</p>
-    <div class="box chart"><svg id="mc" viewBox="0 0 1000 556" style="width:100%;height:auto" role="img" aria-label="Bitcoin against the strike and our side's price for the selected market"></svg></div>
+    <p style="font-size:12px">Top: Bitcoin (or gold) against the strike. The shaded band is "too close to buy" (the distance the entry rule needs at that moment); the bot only buys between the dashed lines. Bottom: the price of our side (the ask) with the buy ceiling, the 99.7&cent; target, and each entry with its stop (dotted red line at its stop price). Volume: contracts traded each second, buyers of YES up, buyers of NO down. Dots: <span style="color:var(--gain)">&#9679;</span> in (bought) <span style="color:var(--loss)">&#9679;</span> out (sold, stopped or settled). Updates every 3 s.</p>
+    <div class="box chart"><svg id="mc" viewBox="0 0 1000 700" style="width:100%;height:auto" role="img" aria-label="Bitcoin against the strike and our side's price for the selected market"></svg></div>
     <div class="box"><table id="mcchk"></table></div>
   </section>
   <div style="display:flex;flex-direction:column;gap:8px">
@@ -451,7 +454,7 @@ async function mcList(){
 async function mcLoad(){
  let D;try{D=await (await fetch("market.json"+(MCSEL?"?t="+encodeURIComponent(MCSEL):""),{cache:"no-store"})).json();}catch(e){return;}
  if(!D||D.error||!D.ticker){$("#mc").innerHTML=`<text x="500" y="270" text-anchor="middle" style="fill:var(--muted);font-size:14px">${esc(D&&D.error||"no market yet")}</text>`;$("#mcchk").innerHTML="";return;}
- MC=D;mcDraw();mcNow();mcChecks();
+ MC=D;mcDraw();mcNow();mcBook();mcChecks();
 }
 const mcAsset=D=>/^KXGOLD/.test(D.ticker||"")?["Gold","Gold"]:["Bitcoin","BTC"];
 function mcDraw(){
@@ -489,8 +492,17 @@ function mcDraw(){
   g+=`<line x1="${X(l.in_s)}" x2="${X(xe)}" y1="${P(l.stop)}" y2="${P(l.stop)}" style="stroke:var(--loss);stroke-width:1;opacity:.55;stroke-dasharray:2 2"/>`;
   g+=`<circle cx="${X(l.in_s)}" cy="${P(l.buy)}" r="3.5" style="fill:var(--gain)"><title>in ${l.qty} @ ${(l.buy*100).toFixed(1)}¢ (stop ${(l.stop*100).toFixed(1)}¢)</title></circle>`;
   if(l.exit&&l.out_s!=null&&l.exit_px!=null)g+=`<circle cx="${X(l.out_s)}" cy="${P(l.exit_px)}" r="3.5" style="fill:var(--loss)"><title>out (${esc(l.exit)}) @ ${(l.exit_px*100).toFixed(1)}¢</title></circle>`;});
- if(now!=null)g+=`<line x1="${X(now)}" x2="${X(now)}" y1="${t0}" y2="${b1}" style="stroke:var(--loss);opacity:.6"/><text x="${X(now)}" y="${b1+36}" text-anchor="middle" style="fill:var(--loss);font-size:11px;font-weight:600">now</text>`;
- for(let m=0;m<=15;m+=3)g+=`<text x="${X(m*60)}" y="${b1+20}" text-anchor="middle" style="fill:var(--muted);font-size:11px">${m} min</text>`;
+ // volume panel: contracts traded per second (taker bought YES up, NO down)
+ const v0=560,v1=650,vm=(v0+v1)/2;let vmax=1;S.forEach(r=>{vmax=Math.max(vmax,r[6]||0,r[7]||0);});
+ const V=q=>q/vmax*(vm-v0);
+ const tv=[0,0];S.forEach(r=>{tv[0]+=r[6]||0;tv[1]+=r[7]||0;});
+ g+=`<text x="${L}" y="${v0-12}" style="fill:var(--fg);font-size:13px;font-weight:600">Volume (contracts traded per second)</text><text x="${W-R+6}" y="${v0+10}" style="fill:var(--gain);font-size:11.5px">bought YES ${Math.round(tv[0]).toLocaleString()}</text><text x="${W-R+6}" y="${v1-2}" style="fill:var(--loss);font-size:11.5px">bought NO ${Math.round(tv[1]).toLocaleString()}</text>`;
+ g+=`<line x1="${L}" x2="${W-R}" y1="${vm}" y2="${vm}" style="stroke:var(--line)"/><text x="${L-6}" y="${v0+4}" text-anchor="end" style="fill:var(--muted);font-size:11px">${Math.round(vmax).toLocaleString()}</text><text x="${L-6}" y="${v1+4}" text-anchor="end" style="fill:var(--muted);font-size:11px">${Math.round(vmax).toLocaleString()}</text>`;
+ const bw=Math.max((W-L-R)/900,1);let vy="",vn="";
+ S.forEach(r=>{if(r[6])vy+=`<rect x="${X(r[0])}" y="${vm-V(r[6])}" width="${bw}" height="${V(r[6])}"/>`;if(r[7])vn+=`<rect x="${X(r[0])}" y="${vm}" width="${bw}" height="${V(r[7])}"/>`;});
+ g+=`<g style="fill:var(--gain);opacity:.8">${vy}</g><g style="fill:var(--loss);opacity:.8">${vn}</g>`;
+ if(now!=null)g+=`<line x1="${X(now)}" x2="${X(now)}" y1="${t0}" y2="${v1}" style="stroke:var(--loss);opacity:.6"/><text x="${X(now)}" y="${v1+36}" text-anchor="middle" style="fill:var(--loss);font-size:11px;font-weight:600">now</text>`;
+ for(let m=0;m<=15;m+=3)g+=`<text x="${X(m*60)}" y="${v1+20}" text-anchor="middle" style="fill:var(--muted);font-size:11px">${m} min</text>`;
  $("#mc").innerHTML=g;
  const n=(D.lots||[]).length,pn=(D.lots||[]).filter(l=>l.exit).length;
  $("#mcnote").textContent=`${D.ticker} · ${n} entries${n?` (${pn} closed)`:""}${D.skipped?" · skipped: "+D.skipped:""}${D.settled?" · settled":""}`;
@@ -518,6 +530,22 @@ function mcNow(){
  $("#noword").innerHTML=O.length?"<tr><th class='l'>Open order</th><th class='l'>Side</th><th>Qty</th><th>Price</th><th>Filled</th><th class='l'>For</th><th class='l'>Placed</th></tr>"+
   O.map(o=>`<tr><td class="l">${esc(o.kind.replace("_"," "))}</td><td class="l">${o.side==="y"?"YES":"NO"}</td><td>${o.qty}</td><td>${o.price==null?"market":c(o.price)}</td><td>${o.filled||0}</td><td class="l">${esc(o.why)}</td><td class="l">${mm(o.placed_s)}</td></tr>`).join("")
   :"<tr><td class='l mut'>No open orders.</td></tr>";
+}
+function mcBook(){
+ const D=MC,B=D.book;
+ if(!B){$("#booknote").textContent=D.settled||MCSEL?"The order book is shown for the running market only.":"No order book yet.";$("#nowbook").innerHTML="";return;}
+ const side=D.side||((D.checks||[]).slice(-1)[0]||{}).side||"y",other=side==="y"?"n":"y",sn=side==="y"?"YES":"NO";
+ const bids=(B[side]||[]).slice(0,8),asks=(B[other]||[]).slice(0,8).map(([p,q])=>[Math.round((1-p)*1000)/1000,q]);
+ const mx=Math.max(1,...bids.map(x=>x[1]),...asks.map(x=>x[1]));
+ const bar=(q,col)=>`<div style="height:10px;width:${Math.max(2,q/mx*220)}px;background:${col};opacity:.7;border-radius:2px"></div>`;
+ const sum=a=>a.reduce((t,x)=>t+x[1],0);
+ let h=`<tr><th class='l'>${sn}</th><th>Price</th><th>Contracts</th><th class='l'></th></tr>`;
+ asks.slice().reverse().forEach(([p,q])=>{h+=`<tr><td class="l neg">sell (ask)</td><td>${(p*100).toFixed(1)}¢</td><td>${Math.round(q).toLocaleString()}</td><td class="l">${bar(q,"var(--loss)")}</td></tr>`;});
+ const sp=asks.length&&bids.length?((asks[0][0]-bids[0][0])*100).toFixed(1)+"¢":"—";
+ h+=`<tr class="sub"><td class="l mut">spread</td><td class="mut">${sp}</td><td></td><td></td></tr>`;
+ bids.forEach(([p,q])=>{h+=`<tr><td class="l pos">buy (bid)</td><td>${(p*100).toFixed(1)}¢</td><td>${Math.round(q).toLocaleString()}</td><td class="l">${bar(q,"var(--gain)")}</td></tr>`;});
+ $("#nowbook").innerHTML=h;
+ $("#booknote").textContent=`${sn} side (the side the bot is on), top 8 prices each way: ${Math.round(sum(asks)).toLocaleString()} contracts offered, ${Math.round(sum(bids)).toLocaleString()} bid. Asks are the other side's bids (100¢ − NO bid). Updates every 3 s.`;
 }
 function mcChecks(){
  const D=MC,C=(D.checks||[]).slice(),byMin=new Map();

@@ -103,3 +103,27 @@ def test_rec_forwards_the_timestamp():
     app._rec("px", {"c": 1.0}, ts=123.4)
     app._rec("trade", {"t": "X"})
     assert got == [("px", 123.4), ("trade", None)]
+
+
+def test_no_new_entries_while_a_cancel_is_unconfirmed(tmp_path):
+    from kalshibot.config import Settings
+    class AllowAll:
+        def allow(self, it, v):
+            return True, ""
+    st, _ = make()
+    app = App.__new__(App)
+    app.journal, app.risk, app.cid_ticker = Journal(tmp_path), AllowAll(), {}
+    app.s, app.recorder = Settings(), None
+    sent = []
+    app.broker = PaperBroker()
+    app.broker.pending_cancels = {"X1": "e1"}
+    async def spy(it, m):
+        sent.append(it.kind)
+    app.broker.submit = spy
+    run = MarketRun(st.market, st)
+    asyncio.run(app._submit_all(run, st.step(view(120)), view(120)))
+    assert sent == [] and run.blocks.get("unconfirmed_cancel") == 1
+    app.broker.pending_cancels = {}
+    asyncio.run(app._submit_all(run, st.step(view(130)), view(130)))
+    assert "limit_buy" in sent or "market_buy" in sent
+    app.journal.close()

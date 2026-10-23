@@ -454,3 +454,40 @@ def test_late_cancel_retries_when_kalshi_refuses():
     rest.before_reply = cancel_now
     submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
     assert rest.cancelled == ["X1"] and b.orders["e1"].meta.get("late_cancel_done")
+
+
+def test_failed_late_cancel_stays_pending_until_kalshi_confirms():
+    rest = FakeRest()
+    b, _ = mk(rest)
+    down = {"on": True}
+    real_cancel = rest.cancel_order
+
+    def cancel(oid):
+        if down["on"]:
+            raise RuntimeError("connection reset")
+        real_cancel(oid)
+    rest.cancel_order = cancel
+
+    def cancel_now(body, oid):
+        coro = b.cancel("e1")
+        try:
+            coro.send(None)
+        except StopIteration:
+            pass
+    rest.before_reply = cancel_now
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
+    assert b.pending_cancels == {"X1": "e1"} and rest.cancelled == []     # 3 tries failed: kept, not forgotten
+    assert run(b.retry_pending_cancels()) == 1                           # still down: still pending
+    down["on"] = False
+    run(b.cancel_entries())                                              # connectivity back: shutdown retries it
+    assert rest.cancelled == ["X1"] and b.pending_cancels == {}
+
+
+def test_pending_cancel_resolved_when_kalshi_no_longer_knows_the_order():
+    rest = FakeRest()
+    b, _ = mk(rest)
+    b.pending_cancels["X9"] = "e9"
+    def gone(oid):
+        raise RuntimeError("404 not_found")
+    rest.cancel_order = gone
+    assert run(b.retry_pending_cancels()) == 0

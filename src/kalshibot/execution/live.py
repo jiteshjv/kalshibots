@@ -177,6 +177,8 @@ class LiveBroker(BrokerBase):
         self.last_fill_ts: float | None = None
         self.errors: list[str] = []
         self.on_event: Callable[[str, dict], Any] | None = None   # order timing log (send / ack / err / cancel / fill)
+        self.pending_cancels: dict[str, str] = {}      # exchange id -> client id: cancels Kalshi has not confirmed yet
+        #   (retried every second, at market close and shutdown; the app opens no new entries while any is pending)
 
     def _ev(self, kind: str, **d: Any) -> None:
         if self.on_event is not None:
@@ -249,8 +251,26 @@ class LiveBroker(BrokerBase):
                          late=True)
                 if k + 1 < tries and not self.inline:
                     await asyncio.sleep(0.5 * 2 ** k)
-        log.error("order %s (%s) was cancelled while being placed but Kalshi refused the cancel %d times; it may still "
-                  "rest on the exchange", st.client_id, st.exchange_id, tries)
+        self.pending_cancels[st.exchange_id] = st.client_id
+        log.error("order %s (%s) was cancelled while being placed but Kalshi refused the cancel %d times; retrying "
+                  "every second, no new entries until it is confirmed", st.client_id, st.exchange_id, tries)
+
+    async def retry_pending_cancels(self) -> int:
+        """Retry cancels Kalshi has not confirmed. An order Kalshi no longer knows (404 / not found: filled or already
+        gone) counts as resolved. Returns how many are still pending."""
+        for oid, cid in list(self.pending_cancels.items()):
+            t0 = self.clock()
+            try:
+                await self._call(self.rest.cancel_order, oid)
+                ok, err = True, None
+            except Exception as e:                        # noqa: BLE001
+                err = str(e)[:300]
+                ok = any(k in err.lower() for k in ("404", "not_found", "not found"))
+            self._ev("cancel", cid=cid, t=t0, ms=round((self.clock() - t0) * 1000, 1), err=err, late=True, retry=True)
+            if ok:
+                self.pending_cancels.pop(oid, None)
+                log.info("pending cancel of %s (%s) resolved", cid, oid)
+        return len(self.pending_cancels)
 
     def _clip_reduce_only(self, st: OrderState) -> None:
         """Local reduce-only for resting sells (Kalshi only honours reduce_only on IOC orders)."""
@@ -332,6 +352,7 @@ class LiveBroker(BrokerBase):
     async def cancel_all(self, ticker: str | None = None) -> int:
         """Cancel every active order we track for `ticker` (all when None) AND any other resting order the exchange
         reports for it (left over from an earlier run). Used at market close, shutdown and on disconnect."""
+        await self.retry_pending_cancels()
         mine = self.open_orders(ticker)
         ids = {o.exchange_id for o in mine if o.exchange_id}
         try:
@@ -357,6 +378,7 @@ class LiveBroker(BrokerBase):
     async def cancel_entries(self) -> int:
         """Shutdown: cancel our resting buys AND any resting buy the exchange still lists (an earlier run's);
         resting sells (take-profits) are left working."""
+        await self.retry_pending_cancels()
         n = await super().cancel_entries()
         try:
             held: dict[str, Side] = {}                    # ticker -> side held (a resting order is read against it)

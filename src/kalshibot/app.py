@@ -352,6 +352,8 @@ class App:
             self._open_of[nxt] = m.close_ts
             await self.feed.set_tickers([m.ticker, nxt])
         self.broker.on_second(view, m.ticker)
+        if getattr(self.broker, "pending_cancels", None):           # live: a cancel Kalshi has not confirmed yet
+            await self.broker.retry_pending_cancels()
         if not run.series or run.series[-1][0] != view.s:
             bp = None if view.btc is None or not math.isfinite(view.btc.price) else round(view.btc.price, 2)
             vy = round(sum(t.qty for t in view.trades if t.taker_side == "y"), 2)
@@ -404,6 +406,8 @@ class App:
         t = run.market.ticker
         if it.kind in ENTRY_KINDS:
             ok, reason = self.risk.allow(it, view)
+            if ok and getattr(self.broker, "pending_cancels", None):    # an old order's fate is unknown: add nothing
+                ok, reason = False, "unconfirmed_cancel"
             if not ok:
                 self.journal.record_order(it, t, status="rejected")
                 self.journal.event("warn", "risk_block", f"{t} {it.kind} {it.qty}: {reason}")

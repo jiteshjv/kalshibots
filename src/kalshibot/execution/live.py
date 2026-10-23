@@ -223,20 +223,34 @@ class LiveBroker(BrokerBase):
         except Exception as e:                            # noqa: BLE001 - any transport/API error
             t1 = self.clock()
             self._ev("err", cid=st.client_id, t=t1, ms=round((t1 - t0) * 1000, 1), msg=str(e)[:300])
-            await self._after_create_error(st, e)
+            await self._after_create_error(st, e)         # may find the order on Kalshi (timeout) and attach its id
+            await self._late_cancel(st)
             return
         t1 = self.clock()
         self._ev("ack", cid=st.client_id, t=t1, ms=round((t1 - t0) * 1000, 1), reply=reply)
         self._on_create_reply(st, reply)
-        if st.meta.get("cancel_after_create") and st.exchange_id:   # cancelled while Kalshi had not answered yet:
-            t0 = self.clock()                                       # cancel it on the exchange now it has an id
-            err = None
+        await self._late_cancel(st)
+
+    async def _late_cancel(self, st: OrderState, tries: int = 3) -> None:
+        """An order cancelled while its create was in flight: cancel it on Kalshi once it has an id (normal reply or
+        timeout recovery). Retries; if Kalshi keeps refusing, logs an error (the order may still rest there)."""
+        if not (st.meta.get("cancel_after_create") and st.exchange_id) or st.meta.get("late_cancel_done"):
+            return
+        for k in range(tries):
+            t0 = self.clock()
             try:
                 await self._call(self.rest.cancel_order, st.exchange_id)
-            except Exception as e:                                  # noqa: BLE001 - e.g. already filled / gone
+                st.meta["late_cancel_done"] = True
+                self._ev("cancel", cid=st.client_id, t=t0, ms=round((self.clock() - t0) * 1000, 1), err=None, late=True)
+                return
+            except Exception as e:                        # noqa: BLE001 - e.g. a network error: try again
                 self.errors.append(f"cancel {st.client_id}: {e}")
-                err = str(e)[:300]
-            self._ev("cancel", cid=st.client_id, t=t0, ms=round((self.clock() - t0) * 1000, 1), err=err, late=True)
+                self._ev("cancel", cid=st.client_id, t=t0, ms=round((self.clock() - t0) * 1000, 1), err=str(e)[:300],
+                         late=True)
+                if k + 1 < tries and not self.inline:
+                    await asyncio.sleep(0.5 * 2 ** k)
+        log.error("order %s (%s) was cancelled while being placed but Kalshi refused the cancel %d times; it may still "
+                  "rest on the exchange", st.client_id, st.exchange_id, tries)
 
     def _clip_reduce_only(self, st: OrderState) -> None:
         """Local reduce-only for resting sells (Kalshi only honours reduce_only on IOC orders)."""

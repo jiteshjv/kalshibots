@@ -406,3 +406,51 @@ def test_cancel_while_create_in_flight_cancels_on_the_exchange_once_it_answers()
     rest.before_reply = None
     submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e2", lot_id="L2", reason="entry")
     assert rest.cancelled == ["X1"] and b.orders["e2"].status == "resting"   # normal orders unaffected
+
+
+def test_cancel_in_flight_then_create_times_out_still_cancels_on_the_exchange():
+    rest = FakeRest()
+    b, _ = mk(rest)
+    real_create = rest.create_order
+
+    def create_then_time_out(*a, **kw):                # Kalshi accepts the order, but the reply is lost (timeout)
+        reply = real_create(*a, **kw)
+        o = reply["order"]
+        rest.resting.append({"order_id": o["order_id"], "client_order_id": "e1", "status": "resting",
+                             "ticker": a[0], "side": "yes", "action": "buy", "yes_price_dollars": "0.9500",
+                             "remaining_count_fp": "10.00", "fill_count_fp": "0.00"})
+        coro = b.cancel("e1")                          # ... and a cancel came in while the request was out
+        try:
+            coro.send(None)
+        except StopIteration:
+            pass
+        raise TimeoutError("read timed out")
+    rest.create_order = create_then_time_out
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
+    st = b.orders["e1"]
+    assert st.status == "cancelled" and st.exchange_id == "X1"
+    assert rest.cancelled == ["X1"]                    # found by the timeout recovery AND cancelled on Kalshi
+
+
+def test_late_cancel_retries_when_kalshi_refuses():
+    rest = FakeRest()
+    b, _ = mk(rest)
+    fails = {"n": 2}
+    real_cancel = rest.cancel_order
+
+    def flaky_cancel(oid):
+        if fails["n"]:
+            fails["n"] -= 1
+            raise RuntimeError("503")
+        real_cancel(oid)
+    rest.cancel_order = flaky_cancel
+
+    def cancel_now(body, oid):
+        coro = b.cancel("e1")
+        try:
+            coro.send(None)
+        except StopIteration:
+            pass
+    rest.before_reply = cancel_now
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
+    assert rest.cancelled == ["X1"] and b.orders["e1"].meta.get("late_cancel_done")

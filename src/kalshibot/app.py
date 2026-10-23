@@ -120,6 +120,7 @@ class App:
         from kalshibot.config import DEMO_REST, DEMO_WS
         key_id, key_path = kalshi_credentials(demo=self.demo)
         kw = {"base_url": DEMO_REST} if self.demo else {}
+        kw.update(reads_per_s=settings.io.api_reads_per_s, writes_per_s=settings.io.api_writes_per_s)
         self.rest = KalshiRest(key_id, key_path, **kw) if key_id and key_path else KalshiRest(**kw)
         sc = settings.strategy                   # history long enough for the longest sweep level checked (3 days minimum)
         self.hist_days = max(3.0, sc.sweep_days + 1, (sc.sweep_max_days + 1) if sc.sweep_max_days > 0 else 0)

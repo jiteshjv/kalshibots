@@ -92,6 +92,8 @@ class IoCfg:
     telegram_token_env: str = "TELEGRAM_BOT_TOKEN"
     telegram_chat_env: str = "TELEGRAM_CHAT_ID"
     dashboard_port: int = 8787
+    api_reads_per_s: float = 8.0         # our own cap on Kalshi REST calls per second (Basic tier allows 10 orders/s;
+    api_writes_per_s: float = 8.0        #   Advanced 30/s, shared by every bot on the same account)
     shadow_of: str = ""                  # shadow bot ("what it would have done" in skipped markets): the main bot's data
                                          # dir. Paper only, every skip filter off, no dashboard buttons; strategy settings
                                          # follow the main bot's settings.json (re-read each market)

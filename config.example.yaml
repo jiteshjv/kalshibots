@@ -98,4 +98,6 @@ io:
   telegram_token_env: TELEGRAM_BOT_TOKEN   # NAME of the environment variable holding your Telegram bot token.
   telegram_chat_env: TELEGRAM_CHAT_ID      # NAME of the environment variable holding your Telegram chat id.
   dashboard_port: 8787        # Port of the dashboard web page (only reachable from the server itself).
+  api_reads_per_s: 8          # Our own cap on Kalshi API calls per second. Kalshi Basic tier: 10 orders/s per account;
+  api_writes_per_s: 8         # Advanced: 30/s. Bots on the same account share it (e.g. BTC 12 + gold 12 on Advanced).
   shadow_of: ""               # Shadow bot only: the main bot's data dir. Paper, no skip filters, no buttons; shows what the main bot would have done in markets it skipped.

@@ -255,6 +255,16 @@ class LiveBroker(BrokerBase):
         log.error("order %s (%s) was cancelled while being placed but Kalshi refused the cancel %d times; retrying "
                   "every second, no new entries until it is confirmed", st.client_id, st.exchange_id, tries)
 
+    @staticmethod
+    def _gone(err: str) -> bool:
+        """Kalshi no longer knows the order (filled or already cancelled): nothing left to cancel."""
+        return any(k in err.lower() for k in ("404", "not_found", "not found"))
+
+    def _cancel_unconfirmed(self, oid: str, cid: str, err: str) -> None:
+        if not self._gone(err):
+            self.pending_cancels[oid] = cid
+            log.warning("cancel of %s (%s) not confirmed (%s): retrying, no new entries until it is", cid, oid, err[:120])
+
     async def retry_pending_cancels(self) -> int:
         """Retry cancels Kalshi has not confirmed. An order Kalshi no longer knows (404 / not found: filled or already
         gone) counts as resolved. Returns how many are still pending."""
@@ -265,7 +275,7 @@ class LiveBroker(BrokerBase):
                 ok, err = True, None
             except Exception as e:                        # noqa: BLE001
                 err = str(e)[:300]
-                ok = any(k in err.lower() for k in ("404", "not_found", "not found"))
+                ok = self._gone(err)
             self._ev("cancel", cid=cid, t=t0, ms=round((self.clock() - t0) * 1000, 1), err=err, late=True, retry=True)
             if ok:
                 self.pending_cancels.pop(oid, None)
@@ -346,6 +356,7 @@ class LiveBroker(BrokerBase):
             except Exception as e:                        # noqa: BLE001 - e.g. already filled / gone
                 self.errors.append(f"cancel {client_id}: {e}")
                 err = str(e)[:300]
+                self._cancel_unconfirmed(st.exchange_id, client_id, err)
             self._ev("cancel", cid=client_id, t=t0, ms=round((self.clock() - t0) * 1000, 1), err=err)
         return self._finish(st, "cancelled")
 
@@ -368,11 +379,13 @@ class LiveBroker(BrokerBase):
                 await self._call(self.rest.batch_cancel, sorted(ids))
             except Exception as e:                        # noqa: BLE001 - fall back to one by one
                 self.errors.append(f"batch_cancel: {e}")
+                cid_of = {o.exchange_id: o.client_id for o in mine if o.exchange_id}
                 for oid in sorted(ids):
                     try:
                         await self._call(self.rest.cancel_order, oid)
                     except Exception as e2:               # noqa: BLE001
                         self.errors.append(f"cancel {oid}: {e2}")
+                        self._cancel_unconfirmed(oid, cid_of.get(oid, oid), str(e2))
         return sum(self._finish(o, "cancelled") for o in mine)
 
     async def cancel_entries(self) -> int:
@@ -412,6 +425,7 @@ class LiveBroker(BrokerBase):
                         await self._call(self.rest.cancel_order, st.exchange_id)
                     except Exception as e:                # noqa: BLE001
                         self.errors.append(f"expire {st.client_id}: {e}")
+                        self._cancel_unconfirmed(st.exchange_id, st.client_id, str(e))
                 if self._finish(st, "expired"):
                     out.append(st.client_id)
         return out

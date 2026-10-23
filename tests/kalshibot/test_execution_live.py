@@ -491,3 +491,27 @@ def test_pending_cancel_resolved_when_kalshi_no_longer_knows_the_order():
         raise RuntimeError("404 not_found")
     rest.cancel_order = gone
     assert run(b.retry_pending_cancels()) == 0
+
+
+def test_ordinary_cancel_timeout_stays_pending():
+    rest = FakeRest()
+    b, _ = mk(rest)
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
+    def timeout(oid):
+        raise TimeoutError("read timed out")
+    rest.cancel_order = timeout
+    run(b.cancel("e1"))                                  # the entry bid expires; its cancel times out
+    assert b.pending_cancels == {"X1": "e1"}             # kept: the bid may still be live, so no fallback buy yet
+    rest.cancel_order = lambda oid: rest.cancelled.append(oid)
+    assert run(b.retry_pending_cancels()) == 0 and rest.cancelled == ["X1"]
+
+
+def test_cancel_of_an_order_kalshi_no_longer_has_is_not_pending():
+    rest = FakeRest()
+    b, _ = mk(rest)
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
+    def gone(oid):
+        raise RuntimeError("404 not_found")
+    rest.cancel_order = gone
+    run(b.cancel("e1"))
+    assert b.pending_cancels == {}

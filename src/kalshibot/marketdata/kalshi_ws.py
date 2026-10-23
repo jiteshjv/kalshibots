@@ -319,7 +319,13 @@ class KalshiWs:
         self._next_id += 1
         cmd = {"id": cid, **cmd}
         if self.ws is not None:
-            await self.ws.send(json.dumps(cmd))
+            try:
+                await self.ws.send(json.dumps(cmd))
+            except Exception as e:  # noqa: BLE001
+                if not type(e).__name__.startswith("ConnectionClosed"):
+                    raise
+                # the socket just died; run() reconnects and re-subscribes every ticker in self.tickers
+                log.warning("kalshi ws send skipped (%s): connection closed, reconnecting", cmd.get("cmd"))
         return cid
 
     async def _subscribe(self, ch: str) -> None:

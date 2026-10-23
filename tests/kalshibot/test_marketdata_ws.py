@@ -274,3 +274,20 @@ def test_on_raw_gets_every_book_message_as_received():
             await w.handle(MSG[k])
     run(go())
     assert raw == [MSG["snapshot"], MSG["delta_yes"], MSG["delta_no"]]     # book messages only, unchanged
+
+
+def test_set_tickers_on_a_dead_socket_does_not_raise_and_keeps_the_new_ticker():
+    """Kalshi's socket can die (keepalive ping timeout) just before the market roll; the roll must not error and
+    the new ticker must be kept so the reconnect subscribes it."""
+    from websockets.exceptions import ConnectionClosedError
+
+    class DeadWs(FakeWs):
+        async def send(self, s):
+            raise ConnectionClosedError(None, None)
+
+    w = mk()
+    w.ws = DeadWs()
+    w.sids = {w.BOOK_CH: 1}
+    new = "KXBTC15M-26OCT191400-00"
+    run(w.set_tickers([TK, new]))
+    assert w.tickers == [TK, new]

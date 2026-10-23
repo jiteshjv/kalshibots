@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>kalshibot</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2040%2040%22%20width%3D%2240%22%20height%3D%2240%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22lg%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%233d7bff%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%238b5cf6%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2240%22%20height%3D%2240%22%20rx%3D%2211%22%20fill%3D%22url%28%23lg%29%22/%3E%3Cpath%20d%3D%22M14%209.5V24.5a5.2%205.2%200%200%201-9.6%202.8%22%20fill%3D%22none%22%20stroke%3D%22%23fff%22%20stroke-width%3D%223.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Cpath%20d%3D%22M18.6%2010.5%2024%2028.5%2031.6%208.6%22%20fill%3D%22none%22%20stroke%3D%22%23fff%22%20stroke-width%3D%223.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Cpath%20d%3D%22M26.9%208.3h5v5%22%20fill%3D%22none%22%20stroke%3D%22%23fff%22%20stroke-width%3D%223.2%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E">
 <style>
 :root{--warn:#9a6b00;--bg:#f4f5f7;--panel:#ffffff;--fg:#1a1f2b;--muted:#5b6475;--line:#dde1e8;--accent:#2b5fb8;--gain:#18794e;--loss:#b4332b;--chip:#e8ecf3;--sub:#f8f9fb;
 --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -32,6 +33,39 @@ p{margin:0;max-width:80ch;color:var(--muted)}
 .tabs a[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
 .tabs a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .view{display:flex;flex-direction:column;gap:20px}.view[hidden]{display:none}
+.logo{flex:none;border-radius:11px;box-shadow:0 2px 10px color-mix(in srgb,#5b6cff 35%,transparent)}
+.setwrap{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start}
+@media (max-width:980px){.setwrap{grid-template-columns:1fr}}
+.setcol{display:flex;flex-direction:column;gap:16px;min-width:0}
+.scard{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.scard>header{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:baseline;padding:14px 18px;border-bottom:1px solid var(--line)}
+.scard>header h3{margin:0;font-size:16px;font-weight:600}.scard>header span{font-size:12.5px;color:var(--muted)}
+.srow{display:grid;grid-template-columns:minmax(200px,1.3fr) minmax(130px,auto) minmax(240px,1fr);gap:12px 18px;align-items:center;padding:12px 18px;border-top:1px solid var(--line)}
+.srow:first-of-type{border-top:0}
+@media (max-width:760px){.srow{grid-template-columns:1fr}}
+.srow .nm{font-size:14px;font-weight:600}.srow .ds{font-size:12px;color:var(--muted);margin-top:2px}
+.srow.chg{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:2px 9px;border:1px solid var(--line);border-radius:999px;font-family:var(--mono);white-space:nowrap}
+.chip i{width:7px;height:7px;border-radius:50%;display:inline-block}
+.chipk{font-weight:600}.chipk.now,.chip .now{color:var(--accent)}.chip i.now{background:var(--accent)}.chip i.def{background:var(--muted)}
+.ctl{display:flex;align-items:center;gap:8px;min-width:0}
+.ctl input[type=range]{flex:1;min-width:80px;accent-color:var(--accent)}
+.ctl input[type=number],.ctl input[type=text],.ctl select{font:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+.ctl input[type=number]{width:96px}.ctl input[type=text]{flex:1}
+.ctl .u{font-size:12px;color:var(--muted);min-width:16px}
+.tgl{position:relative;width:46px;height:26px;flex:none}.tgl input{opacity:0;width:0;height:0}
+.tgl span{position:absolute;inset:0;border-radius:999px;background:var(--line);cursor:pointer;transition:background .15s}
+.tgl span::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .15s}
+.tgl input:checked+span{background:var(--accent)}.tgl input:checked+span::after{transform:translateX(20px)}
+.tgl input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.srow .rs{font-size:11.5px;margin-top:4px}
+.unusedrows summary{padding:10px 18px;font-size:12.5px;color:var(--muted);cursor:pointer;border-top:1px solid var(--line)}
+.unusedrows .srow{opacity:.65}
+.draft{position:sticky;top:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.draft .dk{font-size:11.5px;letter-spacing:.08em;color:var(--muted);margin-top:6px}
+.draftlist{font-size:12.5px;display:flex;flex-direction:column;gap:4px}
+.draftlist .it{display:flex;justify-content:space-between;gap:8px}.draftlist .it b{font-weight:600}
 .box{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 th,td{padding:6px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
@@ -108,7 +142,7 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
 <div class="wrap">
   <div class="top">
     <div style="display:flex;flex-direction:column;gap:6px">
-      <h1 id="title">kalshibot</h1>
+      <div style="display:flex;align-items:center;gap:12px"><svg class="logo" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="JV bot logo"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3d7bff"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect width="40" height="40" rx="11" fill="url(#lg)"/><path d="M14 9.5V24.5a5.2 5.2 0 0 1-9.6 2.8" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.6 10.5 24 28.5 31.6 8.6" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M26.9 8.3h5v5" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg><h1 id="title">kalshibot</h1></div>
       <div class="status" id="status"><span class="mut">Loading…</span></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -123,13 +157,14 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
     <a href="#settings" role="tab" data-v="settings">Settings</a>
   </nav>
 <div class="view" data-view="dashboard">
-  <p>Every Kalshi BTC 15-minute market the bot traded, and every entry inside it. P&amp;L is realized (closed entries, fees included); open entries show as “open”. Times are Pacific. Click a market to see its entries. The page refreshes every 30 s.</p>
+  <p>Every Kalshi BTC 15-minute market the bot traded, and every entry inside it. P&amp;L is realized (closed entries, fees included); open entries show as “open”. Times follow the PT / ET / UTC switch. Click a market to see its entries. The page refreshes every 30 s.</p>
   <div class="controls" aria-label="Date range">
     <label for="d0">From<input type="date" id="d0"></label>
     <label for="d1">To<input type="date" id="d1"></label>
     <button type="button" id="dall" class="lnk">All dates</button>
     <button type="button" id="dwk" class="lnk">Last 7 days</button>
     <button type="button" id="dtoday" class="lnk">Latest day</button>
+    <span class="seg" role="radiogroup" aria-label="Time zone" style="margin-left:auto"><button type="button" data-tz="America/Los_Angeles" role="radio">PT</button><button type="button" data-tz="America/New_York" role="radio">ET</button><button type="button" data-tz="UTC" role="radio">UTC</button></span>
   </div>
   <div class="stats" id="stats"></div>
   <div style="display:flex;flex-direction:column;gap:8px">
@@ -187,15 +222,22 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
   </div>
 </div>
 <div class="view" data-view="settings" hidden>
-  <section style="display:flex;flex-direction:column;gap:8px">
-    <h2>Settings</h2><p style="font-size:12px">Size, entry timing, entry rule, buying, stops, skip rules, loss limit, news. Saving needs the dashboard token; changes apply at once (sizes from the next entry).</p>
-    <div class="box">
-      <p id="setnote" style="font-size:12px;padding:12px 14px 0"></p>
-      <form id="setform" class="sets" onsubmit="return false"></form>
-      <div class="savebar"><button type="button" class="savebtn" id="setsave">Save settings</button><span id="setmsg" class="mut" style="font-size:12px"></span></div>
-    </div>
-  </section>
-</div>
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <h2>Settings</h2>
+    <p style="font-size:12.5px">Every setting the bot runs on. The chips show the value <b class="chipk now">now</b> (running) and the <b class="chipk def">default</b> (config file, the tested setup). Change any setting; your changes collect on the right, and Save sends them to the bot (it asks for the bot's token). Strategy settings apply from the next market, risk settings at once.</p>
+    <p id="setnote" class="mut" style="font-size:12px"></p>
+  </div>
+  <div class="setwrap">
+    <div id="setform" class="setcol"></div>
+    <aside class="draft" aria-label="Your changes">
+      <h3 style="margin:0;font-size:16px">Your changes</h3>
+      <div class="mut" id="draftsub" style="font-size:12px"></div>
+      <div class="dk">CHANGES</div>
+      <div id="draftlist" class="draftlist">No changes yet. Adjust any setting.</div>
+      <div style="display:flex;gap:8px;margin-top:6px"><button type="button" class="savebtn" id="setsave" style="flex:1">Save to the bot</button><button type="button" class="lnk" id="setreset">Reset</button></div>
+      <span id="setmsg" class="mut" style="font-size:12px"></span>
+    </aside>
+  </div>
 </div>
 <script>
 const $=s=>document.querySelector(s);
@@ -342,7 +384,7 @@ let HEALTH=null;
 async function load(){
  let d;try{d=await (await fetch("dashboard.json",{cache:"no-store"})).json();}catch(e){$("#status").innerHTML=`<span class="badge b-bad">cannot reach the bot</span> <span class="mut">retrying in 30 s</span>`;return;}
  try{HEALTH=await (await fetch("health",{cache:"no-store"})).json();}catch(e){HEALTH=null;}
- ALL=d.m||[];E=d.e||{};META=d.meta||{};EV=d.ev||[];if(META.title){document.title=META.title;$("#title").textContent=META.title;}status();sched();
+ ALL=d.m||[];retime(ALL);E=d.e||{};META=d.meta||{};EV=d.ev||[];if(META.title){document.title=META.title;$("#title").textContent=META.title;}status();sched();
  if(!ALL.length){["#d0","#d1"].forEach(s=>{$(s).value="";});apply();return;}
  const ds=ALL.map(r=>r.d);const lo=ds.reduce((a,b)=>a<b?a:b),hi=ds.reduce((a,b)=>a>b?a:b);
  const wasFull=$("#d0").dataset.init?($("#d1").value===$("#d1").max):null;
@@ -363,7 +405,7 @@ function eqHover(e){
  const hx=$("#hx"),hd=$("#hd"); hx.setAttribute("x1",cx);hx.setAttribute("x2",cx);hx.setAttribute("visibility","visible");
  hd.setAttribute("cx",cx);hd.setAttribute("cy",cy);hd.setAttribute("visibility","visible");
  const tip=$("#tip"); tip.hidden=false;
- tip.innerHTML=`<b>${esc(m.day)} ${esc(m.window_pt)}</b> PT<br>cumulative ${col(EQ.cum[i])}<br>this market ${col(m.pnl)} · ${m.contracts.toLocaleString()} ct<br>`+(ddv<0?`below previous high ${col(ddv)}`:`at a new high`);
+ tip.innerHTML=`<b>${esc(m.day)} ${esc(m.window_pt)}</b> ${TZN[TZ]}<br>cumulative ${col(EQ.cum[i])}<br>this market ${col(m.pnl)} · ${m.contracts.toLocaleString()} ct<br>`+(ddv<0?`below previous high ${col(ddv)}`:`at a new high`);
  const px=r.left-br.left+cx/EQ.W*r.width, py=r.top-br.top+cy/240*r.height; const tw=tip.offsetWidth,th=tip.offsetHeight;
  let lx=px+12; if(lx+tw>br.width-6) lx=px-tw-12; let ly=py-th-10; if(ly<4) ly=py+12;
  tip.style.left=Math.max(4,lx)+"px"; tip.style.top=ly+"px";
@@ -405,50 +447,82 @@ let SET=null;
 async function loadSettings(){
  try{SET=await (await fetch("settings.json",{cache:"no-store"})).json();}catch(e){$("#setnote").textContent="Settings need the running bot.";return;}
  if(!SET.ok){$("#setnote").textContent=SET.error||"Settings unavailable.";return;}
- $("#setnote").textContent=`${SET.series} · ${SET.mode.toUpperCase()} mode. ${SET.note} Orange = changed here (overrides config.yaml).`;
- const ov=new Set(SET.overridden||[]);
- const field=f=>{const v=SET.values[f.key],k=f.type.split(":")[0],id="s_"+f.key.replace(".","_");
-  const unit=k==="pct"?" (%)":k==="cents"?" (¢)":"";const lab=`<span class="${ov.has(f.key)?'ov':''}">${esc(f.label)}${f.label.match(/\(.*\)$/)?'':unit}</span>`;
-  let inp;
-  if(k==="bool")inp=`<select id="${id}" data-k="${f.key}"><option value="true"${v?" selected":""}>on</option><option value="false"${!v?" selected":""}>off</option></select>`;
-  else if(k==="choice")inp=`<select id="${id}" data-k="${f.key}">${f.type.split(":")[1].split(",").map(o=>`<option${o===v?" selected":""}>${o}</option>`).join("")}</select>`;
-  else if(k==="str")inp=`<input type="text" id="${id}" data-k="${f.key}" value="${esc(v)}">`;
-  else inp=`<input type="number" step="any" id="${id}" data-k="${f.key}" value="${esc(v)}"${f.min!=null?` min="${f.min}"`:""}${f.max!=null?` max="${f.max}"`:""}>`;
-  return `<label for="${id}">${lab}${inp}${f.help?`<span class="hl">${esc(f.help)}</span>`:""}${ov.has(f.key)?`<button type="button" class="lnk" data-reset="${f.key}" style="align-self:start;padding:2px 6px">reset to config</button>`:""}</label>`;};
- const groups=SET.groups||[{title:"Settings",about:""}];
- $("#setform").innerHTML=groups.map(g=>{const fs=SET.fields.filter(f=>(f.group||"Settings")===g.title);if(!fs.length)return "";
-  const on=fs.filter(f=>inUse(f,SET.values)),off=fs.filter(f=>!inUse(f,SET.values)&&!f.hide_unused);
-  return `<section class="sgrp"><h3>${esc(g.title)}</h3>${g.about?`<p class="about">${esc(g.about)}</p>`:""}<div class="sgrid">${on.map(field).join("")}</div>`+
-   (off.length?`<details class="unused"><summary>${off.length} setting${off.length>1?"s":""} not in use with the settings above</summary><div class="sgrid">${off.map(field).join("")}</div></details>`:"")+`</section>`;}).join("");
+ $("#setnote").textContent=`${SET.series} · ${SET.mode.toUpperCase()} mode. ${SET.note}`;
+ $("#draftsub").textContent=`${SET.series} · ${SET.mode} mode`;
+ renderSettings();
 }
+const S_UNIT={pct:"%",cents:"¢"};
+function sUnit(f){const k=f.type.split(":")[0];if(S_UNIT[k])return S_UNIT[k];const m=f.label.match(/\((seconds|ms)\)/);return m?(m[1]==="seconds"?"s":"ms"):"";}
+function sLabel(f){return f.label.replace(/\s*\((%|¢|seconds|ms)\)\s*$/,"");}
+function sFmt(f,v){if(v===true)return "on";if(v===false)return "off";if(v===""||v==null)return "—";const u=sUnit(f);return String(v)+(u?(u==="%"||u==="¢"?u:" "+u):"");}
+function sCtl(f){const v=SET.values[f.key],k=f.type.split(":")[0],id="s_"+f.key.replace(".","_"),u=sUnit(f);
+ if(k==="bool")return `<label class="tgl"><input type="checkbox" id="${id}" data-k="${f.key}"${v?" checked":""} aria-label="${esc(sLabel(f))}"><span></span></label>`;
+ if(k==="choice")return `<select id="${id}" data-k="${f.key}" aria-label="${esc(sLabel(f))}">${f.type.split(":")[1].split(",").map(o=>`<option${o===v?" selected":""}>${o}</option>`).join("")}</select>`;
+ if(k==="str")return `<input type="text" id="${id}" data-k="${f.key}" value="${esc(v)}" aria-label="${esc(sLabel(f))}">`;
+ const d=Number((SET.defaults||{})[f.key]??v),lo=f.min??0;let hi=f.max??Math.max(10,(Math.abs(Number(v))||1)*4);
+ const big=Math.max(Math.abs(Number(v))||0,Math.abs(d)||0,1);if(hi-lo>40*big)hi=Math.max(lo+1,Math.ceil(big*4));
+ const step=k==="int"?1:(hi-lo)<=3?0.001:0.1;
+ return `<input type="range" min="${lo}" max="${hi}" step="${step}" value="${esc(v)}" data-r="${f.key}" aria-hidden="true" tabindex="-1"><input type="number" step="any" id="${id}" data-k="${f.key}" value="${esc(v)}"${f.min!=null?` min="${f.min}"`:""}${f.max!=null?` max="${f.max}"`:""} aria-label="${esc(sLabel(f))}"><span class="u">${esc(u)}</span>`;}
+function sRow(f){const v=SET.values[f.key],d=(SET.defaults||{})[f.key],ov=(SET.overridden||[]).includes(f.key);
+ return `<div class="srow" data-row="${f.key}"><div><div class="nm">${esc(sLabel(f))}</div>${f.help?`<div class="ds">${esc(f.help)}</div>`:""}${ov?`<div class="rs"><span style="color:var(--warn)">changed here</span> · <button type="button" class="lnk" data-reset="${f.key}" style="padding:0 4px">back to default</button></div>`:""}</div>
+  <div class="chips"><span class="chip" title="running now"><i class="now"></i><span class="now">${esc(sFmt(f,v))}</span></span>${d!==undefined?`<span class="chip" title="default (config file)"><i class="def"></i>${esc(sFmt(f,d))}</span>`:""}</div>
+  <div class="ctl">${sCtl(f)}</div></div>`;}
+function renderSettings(){
+ const groups=SET.groups||[{title:"Settings",about:""}];let n=0;
+ $("#setform").innerHTML=groups.map(g=>{const fs=SET.fields.filter(f=>(f.group||"Settings")===g.title);if(!fs.length)return "";n++;
+  const on=fs.filter(f=>inUse(f,SET.values)),off=fs.filter(f=>!inUse(f,SET.values)&&!f.hide_unused);
+  return `<section class="scard"><header><h3>${n} · ${esc(g.title)}</h3>${g.about?`<span>${esc(g.about)}</span>`:""}</header>${on.map(sRow).join("")}`+
+   (off.length?`<details class="unusedrows"><summary>${off.length} setting${off.length>1?"s":""} not in use with the settings above</summary>${off.map(sRow).join("")}</details>`:"")+`</section>`;}).join("");
+ sDraft();
+}
+function sVal(el,f){const t=f.type.split(":")[0];if(t==="bool")return el.checked;if(t==="str"||t==="choice")return el.value;return el.value===""?null:Number(el.value);}
+function sChanges(){const ch={};if(!SET)return ch;
+ document.querySelectorAll("#setform [data-k]").forEach(el=>{const f=SET.fields.find(x=>x.key===el.dataset.k);if(!f)return;const v=sVal(el,f);
+  if(v!==null&&String(v)!==String(SET.values[f.key]))ch[f.key]=v;});return ch;}
+function sDraft(){const ch=sChanges(),ks=Object.keys(ch);
+ document.querySelectorAll("#setform .srow").forEach(r=>r.classList.toggle("chg",ks.includes(r.dataset.row)));
+ $("#draftlist").innerHTML=ks.length?ks.map(k=>{const f=SET.fields.find(x=>x.key===k);return `<div class="it"><span>${esc(sLabel(f))}</span><b>${esc(sFmt(f,SET.values[k]))} → ${esc(sFmt(f,ch[k]))}</b></div>`;}).join(""):"No changes yet. Adjust any setting.";
+ $("#setsave").disabled=!ks.length;}
+$("#setform").addEventListener("input",e=>{const r=e.target.closest("[data-r]"),k=e.target.closest("[data-k]");
+ if(r){const box=document.querySelector(`#setform [data-k="${r.dataset.r}"]`);if(box)box.value=r.value;}
+ else if(k&&k.type==="number"){const sl=document.querySelector(`#setform [data-r="${k.dataset.k}"]`);if(sl)sl.value=k.value;}
+ sDraft();});
+$("#setform").addEventListener("change",sDraft);
 function inUse(f,vals){if(!f.show_if)return true;const [k,op,want]=f.show_if;let v=vals[k];
  if(typeof want==="number")v=Number(v);else if(typeof want==="boolean")v=(v===true||v==="true");
  return op==="=="?v===want:op==="!="?v!==want:op===">"?v>want:true;}
 async function saveSettings(body){
- const tok=prompt("Dashboard password: KALSHIBOT_DASH_TOKEN in the .env file (VPS), or dashboard_token.txt in the bot's data folder (this Mac):");if(!tok)return;
+ const tok=prompt("Bot token: KALSHIBOT_DASH_TOKEN in the bot's .env file (server), or dashboard_token.txt in the bot's data folder (this Mac):");if(!tok)return;
  try{const r=await fetch("settings",{method:"POST",headers:{"Authorization":"Bearer "+tok,"Content-Type":"application/json"},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));$("#setmsg").textContent=r.ok?j.message:"Not saved: "+((j.errors||[]).join("; ")||j.error||("HTTP "+r.status));}
  catch(e){$("#setmsg").textContent="Could not reach the bot.";}
  loadSettings();
 }
-$("#setsave").addEventListener("click",()=>{if(!SET)return;const ch={};
- document.querySelectorAll("#setform [data-k]").forEach(el=>{const k=el.dataset.k,old=SET.values[k];let v=el.value;
-  const t=(SET.fields.find(f=>f.key===k)||{}).type||"";
-  if(t==="bool")v=v==="true";else if(!["str"].includes(t.split(":")[0])&&!t.startsWith("choice"))v=v===""?null:Number(v);
-  if(v!==null&&String(v)!==String(old))ch[k]=v;});
- if(!Object.keys(ch).length){$("#setmsg").textContent="No changes.";return;}
- if(!confirm("Save these settings?\n\n"+Object.entries(ch).map(([k,v])=>k+" = "+v).join("\n")+"\n\nStrategy changes apply from the next market."))return;
+$("#setsave").addEventListener("click",()=>{const ch=sChanges();if(!Object.keys(ch).length){$("#setmsg").textContent="No changes.";return;}
+ if(!confirm("Save these settings to the bot?\n\n"+Object.entries(ch).map(([k,v])=>k+" = "+v).join("\n")+"\n\nStrategy changes apply from the next market."))return;
  saveSettings(ch);});
-$("#setform").addEventListener("click",e=>{const b=e.target.closest("[data-reset]");if(!b)return;if(confirm("Reset "+b.dataset.reset+" to the value in config.yaml?"))saveSettings({[b.dataset.reset]:null});});
+$("#setreset").addEventListener("click",()=>{if(SET)renderSettings();$("#setmsg").textContent="";});
+$("#setform").addEventListener("click",e=>{const b=e.target.closest("[data-reset]");if(!b)return;if(confirm("Put "+b.dataset.reset+" back to the default (config file)?"))saveSettings({[b.dataset.reset]:null});});
 load();setInterval(load,30000);
+// ---------------------------------------------------------------- time zone (PT / ET / UTC) for every date and time
+let TZ="America/Los_Angeles";try{TZ=localStorage.getItem("kb_tz")||TZ;}catch(e){}
+const TZN={"America/Los_Angeles":"PT","America/New_York":"ET","UTC":"UTC"};
+function tzParts(ts){const p={};new Intl.DateTimeFormat("en-US",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit",weekday:"short",hour:"numeric",minute:"2-digit",hour12:true}).formatToParts(new Date(ts*1000)).forEach(x=>p[x.type]=x.value);return p;}
+function retime(rows){rows.forEach(r=>{if(r.ots==null)return;const p=tzParts(r.ots);
+ r.d=`${p.year}-${p.month}-${p.day}`;r.day=`${p.weekday} ${new Date(r.ots*1000).toLocaleString("en-US",{timeZone:TZ,month:"short"})} ${+p.day}`;r.window_pt=`${p.hour}:${p.minute} ${p.dayPeriod}`;});}
+function tzButtons(){document.querySelectorAll("[data-tz]").forEach(b=>{const on=b.dataset.tz===TZ;b.setAttribute("aria-checked",String(on));});}
+document.querySelectorAll("[data-tz]").forEach(b=>b.addEventListener("click",()=>{TZ=b.dataset.tz;try{localStorage.setItem("kb_tz",TZ)}catch(e){}
+ tzButtons();retime(ALL);$("#d0").dataset.init="";load();if(VIEW==="live")mcLoad();}));
+tzButtons();
+
 // ---------------------------------------------------------------- market chart (market.json / markets.json)
 let MC=null,MCSEL="",MCOPEN=new Set();
-const ptTime=ts=>new Date(ts*1000).toLocaleTimeString("en-US",{timeZone:"America/Los_Angeles",hour:"numeric",minute:"2-digit"});
+const ptTime=ts=>new Date(ts*1000).toLocaleTimeString("en-US",{timeZone:TZ,hour:"numeric",minute:"2-digit"});
 async function mcList(){
  let L;try{L=await (await fetch("markets.json",{cache:"no-store"})).json();}catch(e){return;}
  if(!Array.isArray(L))return;
  const sel=$("#mcsel"),cur=sel.value;
- sel.innerHTML=L.map(x=>{const t0=x.open_ts;return `<option value="${x.now?"":esc(x.ticker)}">${t0?ptTime(t0)+"–"+ptTime(t0+900)+" PT":esc(x.ticker)}${x.now?" (now)":""}</option>`;}).join("");
+ sel.innerHTML=L.map(x=>{const t0=x.open_ts;return `<option value="${x.now?"":esc(x.ticker)}">${t0?ptTime(t0)+"–"+ptTime(t0+900)+" "+TZN[TZ]:esc(x.ticker)}${x.now?" (now)":""}</option>`;}).join("");
  if([...sel.options].some(o=>o.value===cur))sel.value=cur;
 }
 async function mcLoad(){
@@ -552,7 +626,7 @@ function mcChecks(){
  const D=MC,C=(D.checks||[]).slice(),byMin=new Map();
  C.forEach(c=>{const m=Math.floor(c.s/60);if(!byMin.has(m))byMin.set(m,[]);byMin.get(m).push(c);});
  const f=(v,d)=>v==null?"":v.toFixed(d);
- let h=`<tr><th class='l'>Time (PT)</th><th class='l'>Min</th><th>${mcAsset(D)[0]}</th><th class='l'>Side</th><th>Price</th><th>Distance</th><th>Needed</th><th>Z</th><th>Loss chance</th><th class='l'>Checks</th><th class='l'>Decision</th></tr>`;
+ let h=`<tr><th class='l'>Time (${TZN[TZ]})</th><th class='l'>Min</th><th>${mcAsset(D)[0]}</th><th class='l'>Side</th><th>Price</th><th>Distance</th><th>Needed</th><th>Z</th><th>Loss chance</th><th class='l'>Checks</th><th class='l'>Decision</th></tr>`;
  [...byMin.keys()].sort((a,b)=>b-a).forEach(m=>{const rs=byMin.get(m),l=rs[rs.length-1],buys=rs.filter(c=>/^BUY/.test(c.why)).length;
   const cnt={};rs.forEach(c=>{const k=c.why.replace(/^BUY.*/,"BUY");cnt[k]=(cnt[k]||0)+1;});const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${k} ${v}`).join(" · ");
   const row=c=>`<td>${c.btc==null?"":"$"+c.btc.toLocaleString()}</td><td class="l">${c.side==="y"?"YES":c.side==="n"?"NO":""}</td><td>${c.px==null?"":Math.round(c.px*100)+"¢"}</td><td>${c.dist==null?"":f(c.dist,3)+"%"}</td><td>${c.need==null?"":f(c.need,3)+"%"}</td><td>${f(c.z,2)}</td><td>${c.risk==null?"":(c.risk*100).toFixed(1)+"%"}</td>`;

@@ -133,18 +133,18 @@ def save(data_dir, overrides: dict) -> None:
 
 # Page sections: (title, one-line explanation, setting names). Every SPEC setting is in exactly one group.
 GROUPS = [
-    ("Size", "How many contracts each entry buys.", ["sizing", "size_late", "size_early", "max_held"]),
-    ("Entry timing", "When in the 15-minute market the bot may open entries.", ["first_check_s", "last_entry_s", "check_every_s"]),
-    ("Entry rule", "Which side to buy and when it is safe enough to enter.", ["risk_max", "mny_start", "mny_floor", "mny_end_s"]),
-    ("Buying", "How each entry is bought: a bid under the ask (low fee), then market if it does not fill.",
-     ["max_price", "max_spread", "limit_offset", "entry_wait_s", "limit_fallback"]),
-    ("Stops and selling", "When an entry is sold early, and the resting sell near $1.",
-     ["stop_pct", "stop_lead", "stop_fair", "stop_recheck", "fast_stop_ms", "take_profit"]),
-    ("Skip markets", "Conditions that skip a market or pause new entries.",
+    ("Market selection", "Markets the bot skips, or pauses new entries in.",
      ["max_range_2h", "jump_pause", "skip_hours_pt", "filters", "sweep_days", "sweep_max_days", "sweep_4h_m60"]),
-    ("Loss limit", "A stop for the whole day.", ["daily_loss_limit"]),
+    ("Entry signal", "When a trade is allowed: the entry window and the risk check.",
+     ["first_check_s", "last_entry_s", "check_every_s", "risk_max", "mny_start", "mny_floor", "mny_end_s"]),
+    ("Entry execution", "How the bot buys once the rules pass: a bid under the ask, then market if it does not fill.",
+     ["max_price", "max_spread", "limit_offset", "entry_wait_s", "limit_fallback"]),
+    ("Size", "How many contracts each entry buys.", ["sizing", "size_late", "size_early", "max_held"]),
+    ("Exits", "Each entry has its own stop (both conditions must hold); everything else sells at the take-profit or settles.",
+     ["stop_pct", "stop_lead", "stop_fair", "stop_recheck", "fast_stop_ms", "take_profit"]),
     ("News releases", "No new entries around big US data releases.",
      ["news_mode", "news_events", "news_before_min", "news_after_min", "news_windows"]),
+    ("Daily loss limit", "A stop for the whole day.", ["daily_loss_limit"]),
 ]
 # A setting is "not in use" (shown folded away) while its condition is false: key -> (other key, op, value)
 SHOW_IF = {

@@ -1,3 +1,4 @@
+from kalshibot.marketdata.kalshi_rest import KalshiError
 import asyncio
 
 import pytest
@@ -491,7 +492,7 @@ def test_pending_cancel_resolved_when_kalshi_no_longer_knows_the_order():
     b, _ = mk(rest)
     b.pending_cancels["X9"] = "e9"
     def gone(oid):
-        raise RuntimeError("404 not_found")
+        raise KalshiError("DELETE /portfolio/orders/X9: HTTP 404: not_found", 404)
     rest.cancel_order = gone
     assert run(b.retry_pending_cancels()) == 0
 
@@ -514,7 +515,7 @@ def test_cancel_of_an_order_kalshi_no_longer_has_is_not_pending():
     b, _ = mk(rest)
     submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
     def gone(oid):
-        raise RuntimeError("404 not_found")
+        raise KalshiError("DELETE /portfolio/orders/X9: HTTP 404: not_found", 404)
     rest.cancel_order = gone
     run(b.cancel("e1"))
     assert b.pending_cancels == {}
@@ -556,3 +557,19 @@ def test_cancel_all_keeps_unconfirmed_batch_results_pending():
     rest.batch_errors = {"X1": "exchange busy"}
     run(b.cancel_all())
     assert b.pending_cancels == {"X1": "e1"}
+
+
+def test_order_id_containing_404_with_a_503_is_not_treated_as_gone():
+    rest = FakeRest()
+    b, _ = mk(rest)
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
+    def busy(oid):
+        raise KalshiError(f"DELETE /portfolio/events/orders/1f404abc-{oid}: HTTP 503: service unavailable", 503)
+    rest.cancel_order = busy
+    run(b.cancel("e1"))
+    assert b.pending_cancels == {"X1": "e1"}             # a 503 is not "gone", whatever the URL contains
+    assert run(b.retry_pending_cancels()) == 1
+    def timeout(oid):
+        raise TimeoutError("timed out for /orders/404404")
+    rest.cancel_order = timeout
+    assert run(b.retry_pending_cancels()) == 1           # transport errors stay pending too

@@ -257,14 +257,21 @@ class LiveBroker(BrokerBase):
                   "every second, no new entries until it is confirmed", st.client_id, st.exchange_id, tries)
 
     @staticmethod
-    def _gone(err: str) -> bool:
-        """Kalshi no longer knows the order (filled or already cancelled): nothing left to cancel."""
-        return any(k in err.lower() for k in ("404", "not_found", "not found"))
+    def _gone(err: Any) -> bool:
+        """Kalshi no longer knows the order (filled or already cancelled): nothing left to cancel. Only an HTTP 404 /
+        an exact not_found error code counts: the message text also holds the order id, which may contain "404"."""
+        st = getattr(err, "status", None)
+        if st is not None:
+            return st == 404
+        if isinstance(err, dict):                          # a per-order error inside a batch reply
+            return str(err.get("code", "")).lower() in ("not_found", "order_not_found")
+        return False
 
-    def _cancel_unconfirmed(self, oid: str, cid: str, err: str) -> None:
+    def _cancel_unconfirmed(self, oid: str, cid: str, err: Any) -> None:
         if not self._gone(err):
             self.pending_cancels[oid] = cid
-            log.warning("cancel of %s (%s) not confirmed (%s): retrying, no new entries until it is", cid, oid, err[:120])
+            log.warning("cancel of %s (%s) not confirmed (%s): retrying, no new entries until it is", cid, oid,
+                        str(err)[:120])
 
     def _batch_unconfirmed(self, reply: Any, ids: list[str]) -> dict[str, str]:
         """Kalshi's batch cancel answers per order ({"orders": [{"order_id", "order", "error"}, ...]}). Returns the
@@ -283,9 +290,8 @@ class LiveBroker(BrokerBase):
             if oid not in res:
                 out[oid] = "missing from the batch reply"
             elif res[oid]:
-                err = json.dumps(res[oid]) if not isinstance(res[oid], str) else res[oid]
-                if not self._gone(err):
-                    out[oid] = err
+                if not self._gone(res[oid]):
+                    out[oid] = json.dumps(res[oid]) if not isinstance(res[oid], str) else res[oid]
         return out
 
     async def retry_pending_cancels(self) -> int:
@@ -298,7 +304,7 @@ class LiveBroker(BrokerBase):
                 ok, err = True, None
             except Exception as e:                        # noqa: BLE001
                 err = str(e)[:300]
-                ok = self._gone(err)
+                ok = self._gone(e)
             self._ev("cancel", cid=cid, t=t0, ms=round((self.clock() - t0) * 1000, 1), err=err, late=True, retry=True)
             if ok:
                 self.pending_cancels.pop(oid, None)
@@ -379,7 +385,7 @@ class LiveBroker(BrokerBase):
             except Exception as e:                        # noqa: BLE001 - e.g. already filled / gone
                 self.errors.append(f"cancel {client_id}: {e}")
                 err = str(e)[:300]
-                self._cancel_unconfirmed(st.exchange_id, client_id, err)
+                self._cancel_unconfirmed(st.exchange_id, client_id, e)
             self._ev("cancel", cid=client_id, t=t0, ms=round((self.clock() - t0) * 1000, 1), err=err)
         return self._finish(st, "cancelled")
 
@@ -418,10 +424,10 @@ class LiveBroker(BrokerBase):
                         self.pending_cancels.pop(oid, None)
                     except Exception as e2:               # noqa: BLE001
                         self.errors.append(f"cancel {oid}: {e2}")
-                        if self._gone(str(e2)):
+                        if self._gone(e2):
                             self.pending_cancels.pop(oid, None)
                         else:
-                            self._cancel_unconfirmed(oid, cid_of.get(oid, oid), str(e2))
+                            self._cancel_unconfirmed(oid, cid_of.get(oid, oid), e2)
         return sum(self._finish(o, "cancelled") for o in mine)
 
     async def cancel_entries(self) -> int:
@@ -480,7 +486,7 @@ class LiveBroker(BrokerBase):
                         await self._call(self.rest.cancel_order, st.exchange_id)
                     except Exception as e:                # noqa: BLE001
                         self.errors.append(f"expire {st.client_id}: {e}")
-                        self._cancel_unconfirmed(st.exchange_id, st.client_id, str(e))
+                        self._cancel_unconfirmed(st.exchange_id, st.client_id, e)
                 if self._finish(st, "expired"):
                     out.append(st.client_id)
         return out

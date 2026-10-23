@@ -466,7 +466,14 @@ class App:
     # ---------------------------------------------------------------- dashboard settings / schedule
     def settings_view(self) -> dict:
         from kalshibot import settings_store
-        return {"ok": True, "values": settings_store.to_display(self.s), "fields": settings_store.spec_json(), "groups": settings_store.groups_json(),
+        path = getattr(self.s, "_path", None)
+        try:
+            base = Settings.load(path) if path else Settings()
+            defaults = settings_store.to_display(base)
+        except Exception:                                    # noqa: BLE001 - the page works without the chips
+            defaults = {}
+        return {"ok": True, "values": settings_store.to_display(self.s), "defaults": defaults,
+                "fields": settings_store.spec_json(), "groups": settings_store.groups_json(),
                 "overridden": sorted(self._overrides), "mode": self.s.risk.mode, "series": self.s.strategy.series,
                 "note": "Strategy settings apply from the next market; risk settings apply at once. "
                         "Paper/live mode is changed only in config.yaml."}

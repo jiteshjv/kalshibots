@@ -362,6 +362,7 @@ class Journal:
             row = {
                 "day": f"{pt:%a} {pt:%b} {pt.day}",
                 "window_pt": _clock_pt(open_ts),
+                "ots": open_ts,                                  # epoch: the page re-labels times in PT / ET / UTC
                 "ticker": t,
                 "range2h": None if mk["range_2h"] is None else round(mk["range_2h"] * 100, 3),
                 "strike": mk["strike"],

@@ -130,7 +130,7 @@ ExecStart={py} {run} {dir}
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
-TimeoutStopSec=30
+TimeoutStopSec=120
 StandardOutput=append:{dir}/logs/service.out.txt
 StandardError=append:{dir}/logs/service.err.txt
 

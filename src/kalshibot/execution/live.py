@@ -398,9 +398,24 @@ class LiveBroker(BrokerBase):
 
     async def cancel_entries(self) -> int:
         """Shutdown: cancel our resting buys AND any resting buy the exchange still lists (an earlier run's);
-        resting sells (take-profits) are left working."""
-        await self.retry_pending_cancels()
-        n = await super().cancel_entries()
+        resting sells (take-profits) are left working. First ONE batch request for every tracked resting buy plus every
+        unconfirmed cancel (a slow exchange cannot use up the shutdown time one order at a time); then the
+        one-by-one pass and the exchange listing below catch anything the batch missed; pending cancels last."""
+        first = {o.exchange_id: o.client_id for o in self.open_orders()
+                 if o.action == "buy" and o.tif != "ioc" and o.exchange_id}
+        batch = sorted(set(first) | set(self.pending_cancels))
+        if batch:
+            try:
+                await self._call(self.rest.batch_cancel, batch)
+                for oid in batch:
+                    self.pending_cancels.pop(oid, None)
+                for st in self.open_orders():
+                    if st.exchange_id in first:
+                        self._finish(st, "cancelled")
+            except Exception as e:                        # noqa: BLE001 - the one-by-one pass follows
+                self.errors.append(f"shutdown batch_cancel: {e}")
+        n = len(first) - len([o for o in self.open_orders() if o.exchange_id in first])
+        n += await super().cancel_entries()
         try:
             held: dict[str, Side] = {}                    # ticker -> side held (a resting order is read against it)
             for p in _rows(await self._call(self.rest.positions), "market_positions", "positions"):
@@ -414,6 +429,8 @@ class LiveBroker(BrokerBase):
                     n += 1
         except Exception as e:                            # noqa: BLE001
             self.errors.append(f"cancel_entries list: {e}")
+        if self.pending_cancels:
+            await self.retry_pending_cancels()
         return n
 
     async def on_disconnect(self) -> int:

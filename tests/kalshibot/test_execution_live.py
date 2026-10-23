@@ -343,7 +343,8 @@ def test_shutdown_keeps_inflight_market_buy_and_records_its_fill():
     submit(b, kind="limit_buy", side="y", qty=1, price=0.955, client_id="bid", expires_s=10)
     submit(b, kind="market_buy", side="y", qty=1, price=0.985, client_id="mkt")
     run(b.cancel_entries())
-    assert rest.cancelled == ["X1"]                   # only the resting bid
+    sent = rest.cancelled + [i for bt in rest.batch for i in bt]
+    assert sent == ["X1"]                              # only the resting bid (shutdown sends it in one batch)
     assert b.get("mkt").active and ("mkt", "cancelled") not in rec["done"]
     rest.fill_rows = [{"trade_id": "t9", "order_id": "X2", "count": 1, "yes_price": 96, "is_taker": True, "ts": 1201}]
     assert run(b.settle_inflight(timeout_s=1, every_s=0)) == 0
@@ -480,7 +481,7 @@ def test_failed_late_cancel_stays_pending_until_kalshi_confirms():
     assert run(b.retry_pending_cancels()) == 1                           # still down: still pending
     down["on"] = False
     run(b.cancel_entries())                                              # connectivity back: shutdown retries it
-    assert rest.cancelled == ["X1"] and b.pending_cancels == {}
+    assert rest.cancelled + [i for bt in rest.batch for i in bt] == ["X1"] and b.pending_cancels == {}
 
 
 def test_pending_cancel_resolved_when_kalshi_no_longer_knows_the_order():
@@ -515,3 +516,17 @@ def test_cancel_of_an_order_kalshi_no_longer_has_is_not_pending():
     rest.cancel_order = gone
     run(b.cancel("e1"))
     assert b.pending_cancels == {}
+
+
+def test_shutdown_cancels_all_entry_bids_in_one_batch_first():
+    rest = FakeRest()
+    b, _ = mk(rest)
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.94, client_id="e2", lot_id="L2", reason="entry")
+    b.pending_cancels["X9"] = "old"                      # an older cancel Kalshi never confirmed
+    def stalled(oid):                                    # single cancels hang (degraded exchange)
+        raise TimeoutError("read timed out")
+    rest.cancel_order = stalled
+    run(b.cancel_entries())
+    assert rest.batch and sorted(rest.batch[0]) == ["X1", "X2", "X9"]   # one request covered everything
+    assert b.open_orders() == [] and b.pending_cancels == {}

@@ -228,6 +228,15 @@ class LiveBroker(BrokerBase):
         t1 = self.clock()
         self._ev("ack", cid=st.client_id, t=t1, ms=round((t1 - t0) * 1000, 1), reply=reply)
         self._on_create_reply(st, reply)
+        if st.meta.get("cancel_after_create") and st.exchange_id:   # cancelled while Kalshi had not answered yet:
+            t0 = self.clock()                                       # cancel it on the exchange now it has an id
+            err = None
+            try:
+                await self._call(self.rest.cancel_order, st.exchange_id)
+            except Exception as e:                                  # noqa: BLE001 - e.g. already filled / gone
+                self.errors.append(f"cancel {st.client_id}: {e}")
+                err = str(e)[:300]
+            self._ev("cancel", cid=st.client_id, t=t0, ms=round((self.clock() - t0) * 1000, 1), err=err, late=True)
 
     def _clip_reduce_only(self, st: OrderState) -> None:
         """Local reduce-only for resting sells (Kalshi only honours reduce_only on IOC orders)."""
@@ -293,6 +302,8 @@ class LiveBroker(BrokerBase):
             return False
         if st.tif == "ioc":                               # immediate orders end by themselves (filled or not): marking
             return False                                  # one "cancelled" here would lose a fill still on its way
+        if not st.exchange_id and st.status == "pending" and "args" in st.meta:
+            st.meta["cancel_after_create"] = True         # create still in flight: submit() cancels it on the exchange
         if st.exchange_id:
             t0 = self.clock()
             err = None

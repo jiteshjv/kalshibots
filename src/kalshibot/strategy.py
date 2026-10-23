@@ -358,7 +358,7 @@ class Strategy:
                 if c.limit_fallback and left > 0 and not self.jumped(v.ts):
                     e = v.ask.get(o.side)
                     if e is not None and e < c.max_price and (self.side is None or o.side == self.side
-                                                               or not self.open_lots()):
+                                                               or not self.open_lots()) and self._still_safe(v, o.side):
                         out += self._book_market_entry(v, o.side, left, e, "entry_market_fallback", False)
 
         # C. stops
@@ -498,6 +498,19 @@ class Strategy:
             return [it]
         self._why = f"BUY: market {e * 100:g}c x {sz}"
         return self._book_market_entry(v, s2, sz, e, "entry", True)
+
+    def _still_safe(self, v: SecondView, side: Side) -> bool:
+        """Before the market buy that follows an unfilled bid: with the risk check on, BTC must still be on that side
+        of the strike with risk <= risk_max (backtest FALLRISK=1: same P&L, ~0.7% of these buys skipped)."""
+        c, m = self.cfg, self.market
+        if c.risk_max <= 0 or m is None:
+            return True
+        if v.btc is None or v.btc.stale or not math.isfinite(v.btc.price):
+            return False
+        if (v.btc.price - m.strike) * (1 if side == "y" else -1) < 0:
+            return False
+        rk = self.risk(v.ts, v.btc.price)
+        return rk is not None and rk <= c.risk_max
 
     def _log_check(self, v: SecondView) -> None:
         """One row per entry check (dashboard): BTC, the side it leans to, its ask, distance to the strike, the distance

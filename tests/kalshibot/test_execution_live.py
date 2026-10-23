@@ -386,3 +386,23 @@ def test_order_event_log_records_send_ack_and_cancel():
     b.on_event = lambda k, d: 1 / 0                    # a broken log never stops an order
     submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="c2", lot_id="L2", reason="entry")
     assert b.orders["c2"].exchange_id
+
+
+def test_cancel_while_create_in_flight_cancels_on_the_exchange_once_it_answers():
+    rest = FakeRest()
+    b, _ = mk(rest)
+
+    def cancel_now(body, oid):                         # a cancel arrives before Kalshi has answered the create
+        coro = b.cancel("e1")
+        try:
+            coro.send(None)
+        except StopIteration:
+            pass
+    rest.before_reply = cancel_now
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
+    st = b.orders["e1"]
+    assert st.status == "cancelled" and st.exchange_id == "X1"
+    assert rest.cancelled == ["X1"]                    # cancelled on Kalshi too, not only locally
+    rest.before_reply = None
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e2", lot_id="L2", reason="entry")
+    assert rest.cancelled == ["X1"] and b.orders["e2"].status == "resting"   # normal orders unaffected

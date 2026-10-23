@@ -450,3 +450,17 @@ def test_unfilled_stop_waits_before_retrying():
     assert len(out) == 1
     st.on_order_done(out[0].client_id, "cancelled")
     assert sell(128) == [] and len(sell(129)) == 1     # then 4 s, the most it waits
+
+
+def test_fallback_market_buy_rechecks_risk():
+    rng = np.random.default_rng(3)
+    a = K * np.exp(np.cumsum(rng.normal(0, 0.00002, 4 * 86400)))   # some volatility in the history
+    for mny_at_expiry, want in ((0.0, ["cancel"]), (0.002, ["cancel", "market_buy", "limit_buy"])):
+        st, _ = make(replace(StrategyCfg(), risk_max=0.15, mny_start=0.0, mny_floor=0.0, filters=False), a)
+        st.market = replace(st.market, strike=float(a[OP - T0]))   # strike = BTC at the open
+        K2 = st.market.strike
+        v = lambda s_, m_, **kw: replace(view(s_, **kw), btc=BtcTick(float(OP + s_), K2 * (1 + m_)))
+        bid, = st.step(v(120, 0.002))                  # far from the strike: risk low, bid placed
+        assert bid.kind == "limit_buy"
+        out = st.step(v(130, mny_at_expiry, ask_y=0.93))
+        assert kinds(out) == want                      # at the strike (risk ~50%): no market buy, no new bid

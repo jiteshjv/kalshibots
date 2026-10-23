@@ -28,6 +28,7 @@ def jumped(t):                  # t = unix second of the decision; uses the last
 #   FVSTOP=2: either the traded price or the fair value <= the stop price
 #   FVENT=x : skip an entry when the buy price is more than x above our side's fair value (0 = off)
 # GAP=x, GAPW=w (2026-10-20): if a stop would sell more than x below a lot's stop price (a gap), wait w s and re-check that lot once.
+FALLRISK=os.environ.get("FALLRISK","0")=="1"   # 1 (2026-10-22): the market buy after an unfilled bid re-checks risk <= RISKMAX (and the side) first
 GAP=float(os.environ.get("GAP","0")); GAPW=int(os.environ.get("GAPW","2")); GAPN=[0,0]   # [lots that waited, of those sold later]
 FVSTOP=int(os.environ.get("FVSTOP","0")); FVENT=float(os.environ.get("FVENT","0")); FVBLK=[0]; FVD=[]
 _W60=sum((k/60)**2 for k in range(1,61))
@@ -336,7 +337,7 @@ for y,op,path,K in W:
                 if BIDLOG: BIDS[-1].update(result="expired",done_s=u)
                 if HYB:
                     e_=hb_walk(HB,op+u+1,s_,meta_["n"]) if HB is not None and "mkt" in HBP else buy_px(K,op+u+1,s_)
-                    if e_ is not None and e_<CAP and (side is None or s_==side or not lots) and not jumped(op+u):
+                    if e_ is not None and e_<CAP and (side is None or s_==side or not lots) and not jumped(op+u) and not (FALLRISK and RISKMAX>0 and ((lambda r:r is None or r>RISKMAX)(risk_at(op+u,u,K0)) or ((path[60+u]-K0)*(1 if s_=="y" else -1)<0))):
                         side=s_; n+=1; sz=meta_["n"]; lots.append(dict(meta_,entry_no=n,entry_time=mm(u+1),buy=round(e_,4),stop=round(e_*(1-X),4),cost=round(sz*e_+fee(e_,sz),2),how="market late"))
                         if BIDLOG: BIDS[-1].update(market_px=round(e_,4),entry_no=n)
         if side and lots and lastp is not None:

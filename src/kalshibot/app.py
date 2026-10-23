@@ -147,6 +147,8 @@ class App:
         self.current: MarketRun | None = None
         self.stopping = False
         self._fast_busy = False                    # a stop check started by an arriving trade is still running
+        self._step_lock = asyncio.Lock()           # one strategy step + its order submissions at a time (main loop,
+        #   100 ms checks, trade-triggered checks): a stop must never run while another step's orders are in flight
         self.switch: str | None = None             # None | "disarm" | "kill"
         self.idle = False                          # switch finished: trading nothing until REARM
         self.last_day = dt.datetime.now(dt.timezone.utc).date()
@@ -628,7 +630,10 @@ class App:
 
     async def _fast_on_trade(self) -> None:
         try:
-            await self._fast(time.time())
+            if self._step_lock.locked():               # a step is submitting orders: skip; the 100 ms check follows
+                return
+            async with self._step_lock:
+                await self._fast(time.time())
         except Exception as e:
             self.journal.event("error", "fast_stop", traceback.format_exc()[-800:])
             self.alerts.error("fast_stop", e)
@@ -803,14 +808,16 @@ class App:
                 now = time.time()
                 if now < due:                                 # between seconds: fast stop check only
                     try:
-                        await self._fast(now)
+                        async with self._step_lock:
+                            await self._fast(now)
                     except Exception as e:
                         self.journal.event("error", "fast_stop", traceback.format_exc()[-800:])
                         self.alerts.error("fast_stop", e)
                     continue
                 nxt = int(now) + 1
                 try:
-                    await self._second(now)
+                    async with self._step_lock:
+                        await self._second(now)
                 except Exception as e:
                     self.journal.event("error", "tick", traceback.format_exc()[-800:])
                     self.alerts.error("tick", e)

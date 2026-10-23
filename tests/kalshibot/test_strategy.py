@@ -464,3 +464,28 @@ def test_fallback_market_buy_rechecks_risk():
         assert bid.kind == "limit_buy"
         out = st.step(v(130, mny_at_expiry, ask_y=0.93))
         assert kinds(out) == want                      # at the strike (risk ~50%): no market buy, no new bid
+
+
+def test_risk_unknown_with_too_little_history():
+    rng = np.random.default_rng(5)
+    full = K * np.exp(np.cumsum(rng.normal(0, 0.0001, 4 * 86400)))
+    st, _ = make(replace(StrategyCfg(), risk_max=0.15), full)
+    ts = OP + 300
+    assert st.risk(ts, K * 1.0005) is not None              # full history: a number
+    t_short = ts - 30                                        # just restarted: 30 s of per-second data
+    st2 = Strategy(replace(StrategyCfg(), risk_max=0.15), BtcHistory.from_array(t_short, full[t_short - T0:ts - T0 + 1]))
+    st2.start_market(st.market)
+    assert st2.risk(ts, K * 1.0005) is None                  # unknown -> no entry, instead of a falsely calm number
+
+
+def test_fractional_stop_fills_leave_clean_quantities():
+    st, _, _ = _one_lot()
+    st.lots[0].qty = 1
+    out = st.step(view(122, mark_y=0.5, mny=0.0))
+    sell = [i for i in out if i.kind == "market_sell"][0]
+    st.orders[sell.client_id].qty = 1
+    o = st.orders[sell.client_id]
+    o.filled, o.cost, o.first_ts = 0.57, 0.57 * 0.5, float(OP + 122)    # 0.57 of the 1 contract sold
+    st.on_order_done(sell.client_id, "cancelled")            # 0.43 left unsold -> split off, reopened
+    rest = [L for L in st.lots if L.open]
+    assert len(rest) == 1 and rest[0].qty == 0.43             # not 0.43000000000000005

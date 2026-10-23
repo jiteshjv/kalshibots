@@ -51,6 +51,7 @@ from kalshibot.fees import maker_fee, taker_fee
 from kalshibot.history import BtcHistory
 from kalshibot.types import Fill, Lot, MarketInfo, OrderIntent, SecondView, Side
 
+_QTY_EPS = 0.005                         # quantities are in contract hundredths
 _EPS = 1e-9
 
 
@@ -220,8 +221,9 @@ class Strategy:
             with np.errstate(all="ignore"):
                 d = np.diff(seg)
             d = d[np.isfinite(d)]
-            if len(d) >= 5:
-                sds.append(float(np.std(d)) * math.sqrt(60 / c.risk_sample_s))
+            if len(d) < 0.8 * (w // c.risk_sample_s):   # too little per-second history (just restarted, feed gap):
+                return None                              # unknown risk -> no entry (a few seconds would look calm)
+            sds.append(float(np.std(d)) * math.sqrt(60 / c.risk_sample_s))
         if not sds or max(sds) <= 0:
             return None
         left = max(900 - int(ts - m.open_ts) - c.risk_clock_adj_s, 1) / 60
@@ -565,7 +567,7 @@ class Strategy:
                 L.stop = round(avg * (1 - self.cfg.stop_pct), 4)
                 if L.lot_id in self.tp_of:          # TP size no longer matches: replace it next step
                     self._queued.append(self._cancel(self.tp_of[L.lot_id], "resize"))
-            if o.filled >= o.qty:
+            if o.filled >= o.qty - _QTY_EPS:
                 o.active = False
                 if self.pending == o.client_id:
                     self.pending = None
@@ -574,7 +576,7 @@ class Strategy:
             if L is not None:
                 L.buy, L.fee_in, L.entry_ts = avg, o.fee, o.first_ts
                 L.stop = round(avg * (1 - self.cfg.stop_pct), 4)
-            if o.filled >= o.qty:
+            if o.filled >= o.qty - _QTY_EPS:
                 o.active = False
         elif o.kind == "limit_sell":
             L = self._lot(o.lot_id)
@@ -591,7 +593,7 @@ class Strategy:
             L = self._lot(o.lot_id)
             if L is not None and L.exit in ("stop", "kill"):
                 L.exit_px, L.fee_out, L.exit_ts = avg, o.fee, o.first_ts
-            if o.filled >= o.qty:
+            if o.filled >= o.qty - _QTY_EPS:
                 o.active = False
 
     # ------------------------------------------------------------------ switches
@@ -635,6 +637,7 @@ class Strategy:
     def _split_lot(self, L: Lot, qty: int) -> Lot:
         """Split `qty` contracts off lot L into a new lot (same entry); returns the new lot."""
         self._split += 1
+        qty = round(qty, 2)                    # contract hundredths (fractional fills: 1 - 0.57 = 0.43000000000000005)
         frac = qty / L.qty
         part = Lot(lot_id=f"{L.lot_id}.{self._split}", ticker=L.ticker, side=L.side, qty=qty, buy=L.buy,
                    fee_in=round(L.fee_in * frac, 6), stop=L.stop, entry_ts=L.entry_ts, how=L.how)
@@ -655,7 +658,7 @@ class Strategy:
         L = self._lot(o.lot_id)
         if L is None:
             return
-        if o.kind == "market_buy" and o.filled < o.qty:
+        if o.kind == "market_buy" and o.filled < o.qty - _QTY_EPS:
             if L.lot_id in self.tp_of:
                 self._queued.append(self._cancel(self.tp_of[L.lot_id], "entry_unfilled"))
             if o.filled == 0:
@@ -665,7 +668,7 @@ class Strategy:
                     self.side = o.prev_side
             else:
                 L.qty = o.filled
-        elif o.kind == "market_sell" and o.filled < o.qty and L.exit in ("stop", "kill"):
+        elif o.kind == "market_sell" and o.filled < o.qty - _QTY_EPS and L.exit in ("stop", "kill"):
             stop = L.exit == "stop"
             if o.filled == 0:                      # stop not executed: lot open again (TP re-placed next step)
                 L.exit = L.exit_px = L.exit_ts = None

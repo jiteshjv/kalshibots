@@ -62,6 +62,19 @@ class BtcHistory:
             self._n = i + 1
         self._trim()
 
+    def minute_closes(self, a: int, b: int) -> list[float]:
+        """Closing price of each whole minute in [a, b): the last per-second price in that minute, else the stored
+        1-minute bar's close (startup seeding / cache). Minutes with neither are left out."""
+        out = []
+        for m in range(a // 60 * 60, b, 60):
+            seg = self._sec_slice(m, m + 60)
+            fin = seg[np.isfinite(seg)] if len(seg) else seg
+            if len(fin):
+                out.append(float(fin[-1]))
+            elif m in self._bars:
+                out.append(self._bars[m][2])
+        return out
+
     def save_seconds(self, path: str | os.PathLike, last_s: int = 1800) -> int:
         """Write the newest `last_s` per-second prices to `path` (.npz, atomic): a restart reloads them so the
         risk check (5/15-min lookbacks) has its history at once. Returns the number of seconds written."""

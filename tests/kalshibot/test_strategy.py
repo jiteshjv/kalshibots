@@ -476,6 +476,11 @@ def test_risk_unknown_with_too_little_history():
     st2 = Strategy(replace(StrategyCfg(), risk_max=0.15), BtcHistory.from_array(t_short, full[t_short - T0:ts - T0 + 1]))
     st2.start_market(st.market)
     assert st2.risk(ts, K * 1.0005) is None                  # unknown -> no entry, instead of a falsely calm number
+    for m in range((t_short - 1200) // 60 * 60, t_short, 60):   # startup seeding: 1-minute bars before the restart
+        c_ = float(full[m + 59 - T0])
+        st2.history.add_minute_bar(m, c_, c_, c_)
+    r_full, r_bars = st.risk(ts, K * 1.0005), st2.risk(ts, K * 1.0005)
+    assert r_bars is not None and abs(r_bars - r_full) < 0.15     # minute bars give a comparable number at once
 
 
 def test_fractional_stop_fills_leave_clean_quantities():

@@ -221,9 +221,17 @@ class Strategy:
             with np.errstate(all="ignore"):
                 d = np.diff(seg)
             d = d[np.isfinite(d)]
-            if len(d) < 0.8 * (w // c.risk_sample_s):   # too little per-second history (just restarted, feed gap):
-                return None                              # unknown risk -> no entry (a few seconds would look calm)
-            sds.append(float(np.std(d)) * math.sqrt(60 / c.risk_sample_s))
+            if len(d) >= 0.8 * (w // c.risk_sample_s):
+                sds.append(float(np.std(d)) * math.sqrt(60 / c.risk_sample_s))
+                continue
+            # too little per-second history (just restarted, feed gap): a few seconds would look calm, so use the
+            # 1-minute closes over the same window instead (SD of 1-min changes is the same per-minute scale)
+            cl = np.asarray(self.history.minute_closes(t - w - 60, t + 1), dtype=float)
+            dm = np.diff(cl)
+            dm = dm[np.isfinite(dm)]
+            if len(dm) < max(4, 0.8 * (w // 60)):
+                return None                              # no usable history at all -> unknown risk, no entry
+            sds.append(float(np.std(dm)))
         if not sds or max(sds) <= 0:
             return None
         left = max(900 - int(ts - m.open_ts) - c.risk_clock_adj_s, 1) / 60

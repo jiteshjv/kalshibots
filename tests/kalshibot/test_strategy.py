@@ -494,3 +494,17 @@ def test_fractional_stop_fills_leave_clean_quantities():
     st.on_order_done(sell.client_id, "cancelled")            # 0.43 left unsold -> split off, reopened
     rest = [L for L in st.lots if L.open]
     assert len(rest) == 1 and rest[0].qty == 0.43             # not 0.43000000000000005
+
+
+def test_fast_stop_waits_while_the_side_is_switching():
+    st, _, _ = _one_lot()                              # YES lot, stop 0.63
+    out = st.step(view(122, mark_y=0.5, mny=0.0))      # stopped out: no lots, side still "y"
+    st.on_order_done([i for i in out if i.kind == "market_sell"][0].client_id, "filled")
+    for L in st.lots:
+        L.exit = L.exit or "stop"
+    st._new_side = "n"                                  # a NO entry bid filled between seconds ...
+    from kalshibot.types import Lot
+    st.lots.append(Lot(lot_id="N1", ticker=st.market.ticker, side="n", qty=10, buy=0.83, fee_in=0.01, stop=0.6225,
+                       entry_ts=float(OP + 123)))
+    v = view(123, mark_y=0.10, mny=-0.00001, bid_y=0.09, bid_n=0.89)   # YES prices low = NO doing fine
+    assert st.fast_stops(v) == []                      # no sale of the NO lot judged by YES prices

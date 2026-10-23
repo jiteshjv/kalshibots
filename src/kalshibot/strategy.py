@@ -438,6 +438,11 @@ class Strategy:
         stop sells within ~100 ms of the print instead of at the next second. Nothing else (entries, TPs) runs here."""
         if self.market is None or self.skipped or not self.side or not self.open_lots() or not v.trades:
             return []
+        if self._new_side is not None and self._new_side != self.side:   # an entry on the other side just filled:
+            return []                          # self.side switches at the next whole second; judging its lots by the
+        #                                        old side's prices could sell them by mistake, so step() handles it
+        if any(L.side != self.side for L in self.open_lots()):
+            return []
         mk = v.mark.get(self.side)
         if mk is None or not any(mk <= L.stop for L in self.open_lots()):
             return []

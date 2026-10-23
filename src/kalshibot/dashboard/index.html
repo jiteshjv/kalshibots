@@ -373,17 +373,23 @@ function summary(){
 }
 const H="<tr><th class='l'></th><th class='l'>Day</th><th class='l'>Window</th><th class='l'>Side</th><th>Strike</th><th class='l'>Result</th><th>First entry</th><th>Entries</th><th>Contracts</th><th>Avg buy</th><th>Stopped</th><th>Sold at TP</th><th>Settled</th><th>P&amp;L</th></tr>";
 function tagOf(ex){return ex==="stopped"?"t-stop":ex.startsWith("sold")?"t-tp":ex==="open"?"t-open":"t-set";}
-function sub(t){const rows=E[t]||[],MNY=(META||{}).entry_rule!=="risk";   // BTC (her risk check) has no moneyness line
- return `<tr class="sub"><td colspan="14"><div class="inner"><table><tr><th>#</th><th>Time</th><th class="l">Side</th><th>Contracts</th>${MNY?"<th>Moneyness</th><th>Needed</th>":""}<th>Buy</th><th>Stop price</th><th class="l">Exit</th><th>Exit time</th><th>Exit price</th><th>P&amp;L</th></tr>`+
+function sub(t){const sh=!(E[t]||[]).length&&SHE[t],rows=sh?SHE[t]:(E[t]||[]),MNY=(META||{}).entry_rule!=="risk";   // BTC (her risk check) has no moneyness line
+ return `<tr class="sub"><td colspan="14"><div class="inner">${sh?`<div class="mut" style="font-size:12px;margin:2px 0 6px">Skipped. What the shadow bot (same settings, paper, no skip filters) did in this market. Not in the totals.</div>`:""}<table><tr><th>#</th><th>Time</th><th class="l">Side</th><th>Contracts</th>${MNY?"<th>Moneyness</th><th>Needed</th>":""}<th>Buy</th><th>Stop price</th><th class="l">Exit</th><th>Exit time</th><th>Exit price</th><th>P&amp;L</th></tr>`+
  (rows.length?rows.map(([n,t1,sd,cn,mn,th,b,s,ex,t2,xp,p])=>`<tr><td>${n}</td><td>${esc(t1)}</td><td class="l">${sd==="Y"?"YES":"NO"}</td><td>${cn}</td>${MNY?`<td>${pct(mn)}</td><td>${pct(th)}</td>`:""}<td>${c(b)}</td><td>${c(s)}</td><td class="l"><span class="tag ${tagOf(ex)}">${esc(ex.startsWith("sold")?ex.replace("c","¢"):ex)}</span></td><td>${esc(t2||"")}</td><td>${c(xp)}</td><td class="${cls(p)}">${usd(p)}</td></tr>`).join(""):`<tr><td colspan="${MNY?12:10}" class="mut" style="text-align:left">no entries</td></tr>`)+"</table></div></td></tr>"}
+// skipped markets: what the shadow bot (paper, no skip filters) did, shown greyed and never counted in totals
+let SH={},SHE={};
+function shCells(r){const x=SH[r.ticker];if(!x)return `<td></td><td></td><td></td><td></td><td></td><td></td><td class="mut">no trade</td>`;
+ if(!x.entries)return `<td></td><td></td><td></td><td></td><td></td><td></td><td class="mut" title="the shadow bot (no skip filters) did not trade it either">no trade · would not have traded</td>`;
+ return `<td class="mut">${x.entries}</td><td class="mut">${x.contracts.toLocaleString()}</td><td class="mut">${c(x.avg_buy)}</td><td class="mut">${x.stopped}</td><td class="mut">${x.sold995}</td><td class="mut">${x.settled}</td><td title="paper estimate by the shadow bot (same settings, no skip filters); not in the totals"><span class="mut">would </span><span class="${cls(x.pnl)}" style="opacity:.75">${usd(x.pnl)}</span>${x.open?` <span class="tag t-open">open</span>`:""}</td>`;}
 function draw(){const fr=$("#fres").value;
  const keep=r=>fr==="k"?r.skip:fr==="o"?r.open>0:(!r.skip||!fr)&&(!fr||(fr==="w"?r.pnl>0:fr==="l"?r.pnl<=0:r.stopped>0));
  const R=[...M,...MX].sort((a,b)=>tms(a)-tms(b)).filter(r=>r.excluded?!fr:keep(r)).reverse();   // noted markets: shown, not counted
- $("#count").textContent=R.length+" markets · "+(usd(sum(R.map(r=>r.pnl)))||"$0");
+ const shx=R.filter(r=>r.skip&&SH[r.ticker]&&SH[r.ticker].entries);
+ $("#count").textContent=R.length+" markets · "+(usd(sum(R.map(r=>r.pnl)))||"$0")+(shx.length?` · skipped would have made ${usd(sum(shx.map(r=>SH[r.ticker].pnl)))} (${shx.length} mkts, not counted)`:"");
  if(!ALL.length){$("#mk").innerHTML=`<tr><td class="empty-msg">No markets yet. The bot lists a market here once it makes its first entry (or skips one).</td></tr>`;return;}
  $("#mk").innerHTML=H+R.map(r=>`<tr class="mk" tabindex="0" data-t="${esc(r.ticker)}" title="${esc(r.ticker)}"><td class="l"><span class="caret">${open.has(r.ticker)?"▾":"▸"}</span></td><td class="l">${esc(r.day)}</td><td class="l">${esc(r.window_pt)}</td><td class="l">${r.skip?`<span class="tag t-set">${esc(r.side)}</span>`:esc(r.side)}${r.note?` <span class="tag t-stop" title="left out of the totals">${esc(r.note)}</span>`:""}</td>`+
    `<td>${r.strike==null?"":Number(r.strike).toLocaleString("en-US",{minimumFractionDigits:2})}</td><td class="l">${esc(r.result||(r.skip?"":"pending"))}</td><td>${esc(r.first_entry||"")}</td>`+
-   (r.skip?`<td></td><td></td><td></td><td></td><td></td><td></td><td class="mut">no trade</td>`:
+   (r.skip?shCells(r):
    `<td>${r.entries}</td><td>${r.contracts.toLocaleString()}</td><td>${c(r.avg_buy)}</td><td>${r.stopped}</td><td>${r.sold995}</td><td>${r.settled}</td><td class="${cls(r.pnl)}">${usd(r.pnl)}${r.open?` <span class="tag t-open">${r.open} open</span>`:""}</td>`)+`</tr>`+(open.has(r.ticker)?sub(r.ticker):"")).join("");}
 function status(){
  const m=META||{},mode=(m.mode||"").toLowerCase();const age=m.generated_ts?Math.round(Date.now()/1000-m.generated_ts):null;
@@ -407,6 +413,7 @@ let HEALTH=null;
 async function load(){
  let d;try{d=await (await fetch("dashboard.json",{cache:"no-store"})).json();}catch(e){$("#status").innerHTML=`<span class="badge b-bad">cannot reach the bot</span> <span class="mut">retrying in 30 s</span>`;return;}
  try{HEALTH=await (await fetch("health",{cache:"no-store"})).json();}catch(e){HEALTH=null;}
+ try{const sd=await (await fetch("shadow/dashboard.json",{cache:"no-store"})).json();if(sd&&sd.meta&&sd.meta.shadow){SH={};(sd.m||[]).forEach(r=>{SH[r.ticker]=r;});SHE=sd.e||{};}}catch(e){}
  ALL=d.m||[];retime(ALL);E=d.e||{};META=d.meta||{};EV=d.ev||[];if(META.title){document.title=META.title;$("#title").textContent=META.title;}modeBtn();status();sched();
  if(!ALL.length){["#d0","#d1"].forEach(s=>{$(s).value="";});apply();return;}
  const ds=ALL.map(r=>r.d);const lo=ds.reduce((a,b)=>a<b?a:b),hi=ds.reduce((a,b)=>a>b?a:b);

@@ -98,3 +98,4 @@ io:
   telegram_token_env: TELEGRAM_BOT_TOKEN   # NAME of the environment variable holding your Telegram bot token.
   telegram_chat_env: TELEGRAM_CHAT_ID      # NAME of the environment variable holding your Telegram chat id.
   dashboard_port: 8787        # Port of the dashboard web page (only reachable from the server itself).
+  shadow_of: ""               # Shadow bot only: the main bot's data dir. Paper, no skip filters, no buttons; shows what the main bot would have done in markets it skipped.

@@ -111,6 +111,8 @@ class App:
         self._overrides = settings_store.load(self.data)       # dashboard Settings page (settings.json) over config.yaml
         applied = settings_store.apply(self.s, self._overrides)
         self._mode_from_file = apply_mode_file(self.data, self.s)   # dashboard Live/Paper switch (mode.json)
+        if self.s.io.shadow_of:
+            self._shadow_settings()
         self.journal = Journal(self.data, "journal-live.sqlite" if self.s.risk.mode == "live" else "journal.sqlite")
         self._mode_pending: str | None = None      # "live" / "paper": switch (restart) once the bot holds nothing
         self.alerts = Alerter.from_env(settings.io.telegram_token_env, settings.io.telegram_chat_env)
@@ -146,6 +148,7 @@ class App:
         self.risk = RiskGuard(settings.risk, self.journal, data_dir=self.data, open_orders=self.broker.open_order_count)
         self.server = DashboardServer(self.data, settings.io.dashboard_port, kill_file=settings.risk.kill_file,
                                       disarm_file=settings.risk.disarm_file, max_age_s=2.0,
+                                      token="" if settings.io.shadow_of else None,    # shadow: no buttons at all
                                       export=lambda p: self.journal.export_dashboard_json(p, meta=self.meta()))
         self.server.on_kill = lambda: self.alerts.kill_switch("dashboard")
         self.server.on_rearm = self.rearm
@@ -218,7 +221,10 @@ class App:
         feed = {"price_feed": err} if err else {}
         if getattr(self, "shard_note", None):
             feed["account"] = self.shard_note
-        feed["mode_switch"] = True                           # this bot has the dashboard Live/Paper switch
+        if self.s.io.shadow_of:
+            feed["shadow"] = True
+        else:
+            feed["mode_switch"] = True                       # this bot has the dashboard Live/Paper switch
         if self._mode_pending:
             feed["mode_pending"] = self._mode_pending
         return {**feed, "mode": self.s.risk.mode, "state": self.state_name(), **self.live_line(), "schedule": self.schedule(), "series": self.s.strategy.series, "title": self.s.io.title, "entry_rule": "risk" if self.s.strategy.risk_max > 0 else "moneyness", "market": self.current.market.ticker if self.current else None,
@@ -289,6 +295,11 @@ class App:
             if m is not None and m.ticker in self.runs and not self.runs[m.ticker].settled:
                 self.current = self.runs[m.ticker]
             return
+        if self.s.io.shadow_of:                              # follow the main bot's settings changes
+            try:
+                self._shadow_settings()
+            except Exception as e:  # noqa: BLE001
+                log.warning("shadow: could not re-read the main bot's settings (%s)", e)
         st = Strategy(replace(self.s.strategy), self.history, id_prefix=f"kb{int(now) % 100000}")   # copy: settings saved later apply from the next market
         st.start_market(m)
         if st.skipped == "no price history" and self._feed_down():
@@ -795,12 +806,25 @@ class App:
                 await self._submit(run, it, None)
 
     # ---------------------------------------------------------------- Live / Paper switch (dashboard, token)
+    def _shadow_settings(self) -> None:
+        """Shadow bot: the main bot's strategy settings (its settings.json over this config), then paper only and
+        every market-skip / pause filter off, so it trades the markets the main bot skips."""
+        from kalshibot import settings_store
+        main = settings_store.load(self.s.io.shadow_of)
+        settings_store.apply(self.s, {k: v for k, v in main.items() if k.startswith("strategy.")})
+        sc, rk = self.s.strategy, self.s.risk
+        rk.mode, rk.live_confirm = "paper", ""
+        sc.skip_hours_pt, sc.max_range_2h, sc.filters, sc.jump_pause = "", 1e9, False, 0.0
+        rk.news_mode, rk.daily_loss_limit = "off", 1e12
+
     def request_mode(self, raw: dict) -> tuple[bool, str]:
         """Dashboard Live/Paper button. Live needs the typed confirmation phrase and a Kalshi key. The switch happens
         when the bot holds nothing (no open lots, no open orders): it writes data/mode.json and restarts (the service
         manager starts it again in the new mode; paper and live keep separate journals)."""
         from kalshibot.config import LIVE_CONFIRM_PHRASE
         want = str((raw or {}).get("mode", "")).lower()
+        if self.s.io.shadow_of:
+            return False, "the shadow bot is paper only"
         if self.s.risk.mode == "demo":
             return False, "the demo bot's mode is set in its config file only"
         if want not in ("live", "paper"):

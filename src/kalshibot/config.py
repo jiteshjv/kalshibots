@@ -92,6 +92,9 @@ class IoCfg:
     telegram_token_env: str = "TELEGRAM_BOT_TOKEN"
     telegram_chat_env: str = "TELEGRAM_CHAT_ID"
     dashboard_port: int = 8787
+    shadow_of: str = ""                  # shadow bot ("what it would have done" in skipped markets): the main bot's data
+                                         # dir. Paper only, every skip filter off, no dashboard buttons; strategy settings
+                                         # follow the main bot's settings.json (re-read each market)
 
 
 @dataclass

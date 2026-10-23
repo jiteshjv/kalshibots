@@ -162,3 +162,29 @@ def test_backup_copies_finished_files_and_deletes_old_ones_only_after_copying(tm
     assert sorted(p.name for p in (tmp_path / "bk" / "2026-10-20").iterdir()) == ["05.jsonl.gz", "06.jsonl.gz"]
     assert not (rec / "05.jsonl.gz").exists() and (rec / "06.jsonl.gz").exists()
     assert backup(tmp_path / "data", tmp_path / "bk", now=now)["copied"] == 0  # nothing new
+
+
+def test_shadow_bot_is_paper_only_with_filters_off_and_follows_main_settings(tmp_path, monkeypatch):
+    import json
+    from kalshibot.app import save_mode_file
+    from kalshibot.config import LIVE_CONFIRM_PHRASE
+    from kalshibot.execution.paper import PaperBroker
+    monkeypatch.delenv("KALSHI_API_KEY_ID", raising=False)
+    main, sh = tmp_path / "main", tmp_path / "shadow"
+    main.mkdir(); sh.mkdir()
+    (main / "settings.json").write_text(json.dumps({"strategy.size_late": 7, "strategy.skip_hours_pt": "7-9",
+                                                    "risk.daily_loss_limit": 50.0}))
+    save_mode_file(sh, "live", LIVE_CONFIRM_PHRASE)                      # even a live mode.json is ignored
+    s = Settings()
+    s.risk.mode, s.risk.live_confirm = "live", LIVE_CONFIRM_PHRASE
+    s.io.data_dir, s.io.dashboard_port, s.io.shadow_of = str(sh), 0, str(main)
+    app = App(s)
+    assert s.risk.mode == "paper" and isinstance(app.broker, PaperBroker) and app.journal.path.name == "journal.sqlite"
+    assert s.strategy.size_late == 7 and s.strategy.skip_hours_pt == "" and not s.strategy.filters
+    assert s.strategy.jump_pause == 0 and s.strategy.max_range_2h > 1 and s.risk.news_mode == "off"
+    assert s.risk.daily_loss_limit > 1e9
+    assert app.server._token == "" and app.meta().get("shadow") and "mode_switch" not in app.meta()
+    assert app.request_mode({"mode": "live", "confirm": LIVE_CONFIRM_PHRASE})[0] is False
+    (main / "settings.json").write_text(json.dumps({"strategy.size_late": 3}))
+    app._shadow_settings()
+    assert s.strategy.size_late == 3

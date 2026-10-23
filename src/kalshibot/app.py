@@ -539,6 +539,7 @@ class App:
     def _save_history(self) -> None:
         try:
             self.history.save(self._hist_path())
+            self.history.save_seconds(self.data / "history_secs.npz")     # last 30 min per second (restart warm-up)
         except Exception as e:                               # a cache: never fatal
             log.warning("history cache: %s", e)
 
@@ -796,6 +797,9 @@ class App:
         self.server.start()                                  # dashboard first: it answers while the history loads
         self.journal.event("info", "history", "loading price history")
         last = self.history.load(self._hist_path(), max_age_s=self.hist_days * 86400)
+        ns = self.history.load_seconds(self.data / "history_secs.npz")   # a quick restart keeps the per-second history
+        if ns:
+            log.info("history: %d per-second prices from before the restart", ns)
         thin = last is not None and len(self.history._bars) < 0.5 * self.hist_days * 1380   # e.g. a failed first start
         if thin:
             log.warning("history cache is thin (%d minute bars): reloading the full history", len(self.history._bars))

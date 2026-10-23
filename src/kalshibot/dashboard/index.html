@@ -460,7 +460,7 @@ const mcAsset=D=>/^KXGOLD/.test(D.ticker||"")?["Gold","Gold"]:["Bitcoin","BTC"];
 function mcDraw(){
  const [AN,AS]=mcAsset(MC);const D=MC,W=1000,L=78,R=150,X=s=>L+s/900*(W-L-R),S=D.series||[],K=D.strike,cfg=D.cfg||{};
  const now=D.settled?null:(S.length?S[S.length-1][0]:null);
- const ck=(D.checks||[]).filter(c=>c.need_usd!=null);
+ const ck=(D.checks||[]).filter(c=>c.need_usd!=null&&c.need_usd>0),warm=(cfg.risk_max>0)&&(D.checks||[]).length>0&&!(D.checks||[]).slice(-3).some(c=>c.risk!=null);
  // top panel: BTC vs strike
  const t0=24,t1=230; let lo=K,hi=K;
  S.forEach(r=>{if(r[1]!=null){lo=Math.min(lo,r[1]);hi=Math.max(hi,r[1]);}});
@@ -470,6 +470,7 @@ function mcDraw(){
  for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4;g+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" style="stroke:var(--line)"/><text x="${L-6}" y="${Y(v)+4}" text-anchor="end" style="fill:var(--muted);font-size:11px">$${Math.round(v).toLocaleString()}</text>`;}
  if(ck.length){const up=ck.map(c=>`${X(c.s)},${Y(K+c.need_usd)}`),dn=ck.slice().reverse().map(c=>`${X(c.s)},${Y(K-c.need_usd)}`);
   g+=`<polygon points="${up.concat(dn).join(" ")}" style="fill:var(--loss);opacity:.09"/><text x="${X(ck[0].s)+4}" y="${t0+12}" style="fill:var(--loss);font-size:11px">too close to buy</text>`;}
+ if(warm)g+=`<text x="${(L+W-R)/2}" y="${t0+14}" text-anchor="middle" style="fill:var(--warn);font-size:12px">loss chance not known yet: the bot needs 15 min of price history after a restart (no new entries until then)</text>`;
  [cfg.first_check_s,cfg.last_entry_s].forEach(s=>{if(s!=null)g+=`<line x1="${X(s)}" x2="${X(s)}" y1="${t0}" y2="530" style="stroke:var(--muted);stroke-dasharray:3 4"/>`;});
  g+=`<line x1="${L}" x2="${W-R}" y1="${Y(K)}" y2="${Y(K)}" style="stroke:var(--muted);stroke-dasharray:5 4"/><text x="${W-R+6}" y="${Y(K)+4}" style="fill:var(--fg);font-size:12px">strike $${K.toLocaleString(undefined,{maximumFractionDigits:2})}</text>`;
  const bp=S.filter(r=>r[1]!=null).map(r=>`${X(r[0])},${Y(r[1])}`);

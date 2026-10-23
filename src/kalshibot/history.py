@@ -62,6 +62,35 @@ class BtcHistory:
             self._n = i + 1
         self._trim()
 
+    def save_seconds(self, path: str | os.PathLike, last_s: int = 1800) -> int:
+        """Write the newest `last_s` per-second prices to `path` (.npz, atomic): a restart reloads them so the
+        risk check (5/15-min lookbacks) has its history at once. Returns the number of seconds written."""
+        if self._t0 is None or self._n == 0:
+            return 0
+        lo = max(self._n - last_s, 0)
+        tmp = f"{path}.tmp.npz"
+        np.savez(tmp, t0=np.int64(self._t0 + lo), px=self._buf[lo:self._n])
+        os.replace(tmp, path)
+        return self._n - lo
+
+    def load_seconds(self, path: str | os.PathLike, max_age_s: float = 900, now: float | None = None) -> int:
+        """Add per-second prices saved by save_seconds() if the newest is at most `max_age_s` old (call at startup,
+        before live prices arrive). Returns the number of prices added."""
+        try:
+            z = np.load(path)
+            t0, px = int(z["t0"]), np.asarray(z["px"], dtype=np.float64)
+        except (OSError, KeyError, ValueError):
+            return 0
+        now = time.time() if now is None else now
+        if not len(px) or now - (t0 + len(px) - 1) > max_age_s:
+            return 0
+        n = 0
+        for i, v in enumerate(px):
+            if math.isfinite(v):
+                self.add(t0 + i, float(v))
+                n += 1
+        return n
+
     def add_minute_bar(self, minute_start_ts: float, high: float, low: float, close: float) -> None:
         m = int(math.floor(minute_start_ts)) // 60 * 60
         self._bars[m] = (float(high), float(low), float(close))

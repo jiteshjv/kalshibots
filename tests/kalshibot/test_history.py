@@ -85,3 +85,18 @@ def test_minute_bars_before_seconds():
     assert h.extreme(T0, T0 + 4 * 3600, "y") == 103
     assert h.price_at(T0 + 30) == 100
     assert h.covers(3 * 3600)
+
+
+def test_per_second_history_survives_a_restart(tmp_path):
+    import numpy as np
+    from kalshibot.history import BtcHistory
+    h = BtcHistory()
+    for i in range(1200):                                   # 20 min of per-second prices
+        h.add(1_000_000 + i, 100.0 + i * 0.01)
+    p = tmp_path / "secs.npz"
+    assert h.save_seconds(p, last_s=1800) == 1200
+    h2 = BtcHistory()
+    assert h2.load_seconds(p, now=1_000_000 + 1199 + 30) == 1200      # restarted 30 s later
+    assert np.allclose(h2._sec_slice(1_000_000, 1_001_200), h._sec_slice(1_000_000, 1_001_200))
+    h3 = BtcHistory()
+    assert h3.load_seconds(p, now=1_000_000 + 1199 + 3600) == 0       # an hour later: too old, not used

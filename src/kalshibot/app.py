@@ -647,6 +647,8 @@ class App:
             reason = f"spread > {self.s.strategy.max_spread * 100:g}c"
         elif st.best:
             reason = "low moneyness"
+        elif st.risk_blocks:
+            reason = f"risk > {self.s.strategy.risk_max * 100:g}%"
         elif st.stale_blocks:
             reason = "no price feed" if self._feed_down() else "no price"
         else:

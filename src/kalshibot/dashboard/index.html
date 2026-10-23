@@ -265,7 +265,7 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
-const usd=v=>v==null?"":(v<0?"−$":"+$")+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:Math.abs(v)<100?2:0});
+const usd=v=>v==null?"":(v<0?"−$":"+$")+Math.abs(v).toLocaleString("en-US",Math.abs(v)<100?{minimumFractionDigits:2,maximumFractionDigits:2}:{maximumFractionDigits:0});
 const cls=v=>v>0?"pos":v<0?"neg":"mut";const c=v=>v==null?"":(v*100).toFixed(1)+"¢";
 const pct=v=>v==null?"":v.toFixed(3)+"%";
 const sum=a=>a.reduce((x,y)=>x+(y||0),0);
@@ -656,7 +656,12 @@ function mcNow(){
  const bidOf=side=>last?(side==="y"?last[4]:last[5]):null,mm=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
  const op=lots.filter(l=>!l.exit),cl=lots.filter(l=>l.exit),held=op.reduce((a,l)=>a+l.qty,0);
  const upnl=op.reduce((a,l)=>{const b=bidOf(l.side);return a+(b==null?0:(b-l.buy)*l.qty);},0);
- const rpnl=cl.reduce((a,l)=>a+((l.exit_px??0)-l.buy)*l.qty,0);
+ // closed entries: P&L after fees from the journal (same numbers as the Dashboard tab), matched by entry time + buy price
+ const FE={};(E[D.ticker]||[]).forEach(r=>{if(r[11]==null)return;const k=r[1]+"|"+Math.round(r[6]*1e4);(FE[k]=FE[k]||[]).push(r[11]);});
+ const net=new Map();cl.forEach(l=>{const q=FE[mm(l.in_s)+"|"+Math.round(l.buy*1e4)];if(q&&q.length)net.set(l,q.shift());});
+ const plOf=l=>net.has(l)?net.get(l):((l.exit_px??0)-l.buy)*l.qty;
+ const allNet=cl.every(l=>net.has(l)),mrow=(ALL||[]).find(r=>r.ticker===D.ticker);   // exact market total (rows are rounded)
+ const rpnl=allNet&&mrow&&mrow.pnl!=null?mrow.pnl:cl.reduce((a,l)=>a+plOf(l),0);
  const st=(k,v,sub,cl2)=>`<div class="stat"><span class="k">${k}</span><span class="v ${cl2||""}">${v}</span>${sub?`<span class="s">${sub}</span>`:""}</div>`;
  const lead=last&&last[1]!=null?last[1]-D.strike:null;
  $("#nowstats").innerHTML=
@@ -665,10 +670,11 @@ function mcNow(){
   st(mcAsset(D)[0]+" vs strike",lead==null?"—":(lead>=0?"+":"−")+"$"+Math.abs(lead).toFixed(2),`strike $${D.strike.toLocaleString(undefined,{maximumFractionDigits:2})}`,lead==null?"":lead>=0?"pos":"neg")+
   st("Loss chance now",live&&META.risk_now?esc(String(META.risk_now).split(" (")[0]):"—",live&&META.risk_now?esc(String(META.risk_now).replace(/^[^(]*/,"")):"")+
   st("Holding",held?`${held.toLocaleString()} ${D.side==="n"?"NO":"YES"}`:"none",`${op.length} open entr${op.length===1?"y":"ies"} · ${(D.orders||[]).length} open orders`)+
-  st("P&L in this market",usd(Math.round((upnl+rpnl)*100)/100),`${usd(Math.round(rpnl*100)/100)} closed · ${usd(Math.round(upnl*100)/100)} open at the bid (before fees)`,cls(upnl+rpnl));
- $("#nowlots").innerHTML=lots.length?"<tr><th class='l'>Entry</th><th class='l'>In at</th><th class='l'>Side</th><th>Qty</th><th>Buy</th><th>Stop</th><th>Bid now / exit</th><th class='l'>Status</th><th>P&amp;L (before fees)</th></tr>"+
-  lots.map((l,i)=>{const px=l.exit?l.exit_px:bidOf(l.side),pl=px==null?null:(px-l.buy)*l.qty;
-   return `<tr><td class="l">${i+1}</td><td class="l">${mm(l.in_s)}</td><td class="l">${l.side==="y"?"YES":"NO"}</td><td>${l.qty}</td><td>${c(l.buy)}</td><td>${c(l.stop)}</td><td>${c(px)}</td><td class="l">${l.exit?esc(l.exit)+" at "+mm(l.out_s??0):"open"}</td><td class="${cls(pl)}">${pl==null?"":usd(Math.round(pl*100)/100)}</td></tr>`;}).join("")
+  st("P&L in this market",usd(Math.round((upnl+rpnl)*100)/100),`${usd(Math.round(rpnl*100)/100)} closed${allNet?" (after fees)":""} · ${usd(Math.round(upnl*100)/100)} open at the bid (before fees)`,cls(upnl+rpnl));
+ $("#nowlots").innerHTML=lots.length?"<tr><th class='l'>Entry</th><th class='l'>In at</th><th class='l'>Side</th><th>Qty</th><th>Buy</th><th>Stop</th><th>Bid now / exit</th><th class='l'>Status</th><th>P&amp;L</th></tr>"+
+  lots.map((l,i)=>{const px=l.exit?l.exit_px:bidOf(l.side),pl=px==null?null:l.exit?plOf(l):(px-l.buy)*l.qty;
+   return `<tr><td class="l">${i+1}</td><td class="l">${mm(l.in_s)}</td><td class="l">${l.side==="y"?"YES":"NO"}</td><td>${l.qty}</td><td>${c(l.buy)}</td><td>${c(l.stop)}</td><td>${c(px)}</td><td class="l">${l.exit?esc(l.exit)+" at "+mm(l.out_s??0):"open"}</td><td class="${cls(pl)}" title="${l.exit&&net.has(l)?"after fees":"before fees"}">${pl==null?"":usd(Math.round(pl*100)/100)}${l.exit&&net.has(l)?"":` <span class="mut">*</span>`}</td></tr>`;}).join("")+
+  `<tr><td colspan="9" class="l mut" style="font-size:12px">Closed entries: P&amp;L after fees (same as the Dashboard tab). * = open, at the bid now, before fees.</td></tr>`
   :"<tr><td class='l mut'>No entries in this market.</td></tr>";
  const O=D.orders||[];
  $("#noword").innerHTML=O.length?"<tr><th class='l'>Open order</th><th class='l'>Side</th><th>Qty</th><th>Price</th><th>Filled</th><th class='l'>For</th><th class='l'>Placed</th></tr>"+

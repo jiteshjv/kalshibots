@@ -32,3 +32,31 @@ def test_blocked_market_fallback_leaves_no_phantom_lot_and_no_sell(tmp_path):
     assert "market_buy" not in sent and "limit_sell" not in sent
     assert st.open_lots() == [] and app.journal.lots() == []
     app.journal.close()
+
+
+def test_no_trade_triggered_stop_check_once_shutdown_starts():
+    from dataclasses import replace
+    from kalshibot.config import Settings
+    from kalshibot.types import KTrade
+    from test_strategy import _one_lot
+    st, _, _ = _one_lot()                                  # one open lot
+    app = App.__new__(App)
+    s = Settings()
+    app.s = replace(s, strategy=replace(s.strategy, fast_stop_ms=100))
+    app.recorder, app._fast_busy, app._fast_task = None, False, None
+    app.current = MarketRun(st.market, st)
+    app._step_lock = asyncio.Lock()
+    calls = []
+    async def fake_fast(now):
+        calls.append(now)
+    app._fast = fake_fast
+    async def go(stopping):
+        app.stopping, app._fast_busy = stopping, False
+        app._rec_trade(st.market.ticker, KTrade(0.0, "y", 0.5, 1))
+        if app._fast_task:
+            await app._fast_task
+    asyncio.run(go(False))
+    assert len(calls) == 1                                 # normal: a trade starts a stop check
+    app._fast_task = None
+    asyncio.run(go(True))
+    assert len(calls) == 1 and app._fast_task is None      # shutting down: no new check

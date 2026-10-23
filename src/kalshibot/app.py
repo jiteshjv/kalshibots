@@ -147,6 +147,7 @@ class App:
         self.current: MarketRun | None = None
         self.stopping = False
         self._fast_busy = False                    # a stop check started by an arriving trade is still running
+        self._fast_task: asyncio.Task | None = None
         self._step_lock = asyncio.Lock()           # one strategy step + its order submissions at a time (main loop,
         #   100 ms checks, trade-triggered checks): a stop must never run while another step's orders are in flight
         self.switch: str | None = None             # None | "disarm" | "kill"
@@ -624,9 +625,9 @@ class App:
             self.recorder.write("trade", {"t": tk, "ts": tr.ts, "side": tr.taker_side, "p": tr.price, "q": tr.qty})
         run = self.current                         # fast stops: check at once on each print, not at the next 100 ms tick
         if (self.s.strategy.fast_stop_ms > 0 and run is not None and tk == run.market.ticker and not self._fast_busy
-                and run.strat.open_lots()):
+                and not self.stopping and run.strat.open_lots()):
             self._fast_busy = True
-            asyncio.get_running_loop().create_task(self._fast_on_trade())
+            self._fast_task = asyncio.get_running_loop().create_task(self._fast_on_trade())
 
     async def _fast_on_trade(self) -> None:
         try:
@@ -822,7 +823,14 @@ class App:
                     self.journal.event("error", "tick", traceback.format_exc()[-800:])
                     self.alerts.error("tick", e)
         finally:
-            self.stopping = True
+            self.stopping = True                         # no new trade-triggered stop checks from here on ...
+            try:                                         # ... and one already running finishes its orders first
+                if self._fast_task is not None and not self._fast_task.done():
+                    await asyncio.wait_for(asyncio.shield(self._fast_task), 10)
+                async with self._step_lock:
+                    pass
+            except Exception as e:
+                log.warning("shutdown: waiting for a stop check: %s", e)
             try:                                         # resting buys only: the 99.7c sells keep working on Kalshi
                 await self.broker.cancel_entries()
             except Exception:

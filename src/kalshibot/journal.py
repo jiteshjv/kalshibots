@@ -138,6 +138,9 @@ class Journal:
             cols = {r[1] for r in self._db.execute("PRAGMA table_info(markets)")}
             if "note" not in cols:                       # journals made before market notes existed
                 self._db.execute("ALTER TABLE markets ADD COLUMN note TEXT")
+            # orders whose fractional fills summed to 9.999999999999998 of 10 were left "partial" (open) forever
+            self._db.execute("UPDATE orders SET status='filled', filled_qty=ROUND(filled_qty, 2) "
+                             "WHERE status='partial' AND ROUND(filled_qty, 2) >= qty")
 
     # ------------------------------------------------------------------ low level
     def _exec(self, sql: str, args: Iterable = ()) -> sqlite3.Cursor:
@@ -283,8 +286,8 @@ class Journal:
                 (f.client_id, ticker, f.side, f.action, f.price, f.qty, f.fee, f.ts, int(f.maker)),
             )
             self._db.execute(
-                "UPDATE orders SET filled_qty=COALESCE(filled_qty,0)+?, updated_ts=?, "
-                "status=CASE WHEN COALESCE(filled_qty,0)+? >= qty THEN 'filled' ELSE 'partial' END "
+                "UPDATE orders SET filled_qty=ROUND(COALESCE(filled_qty,0)+?, 2), updated_ts=?, "
+                "status=CASE WHEN ROUND(COALESCE(filled_qty,0)+?, 2) >= qty THEN 'filled' ELSE 'partial' END "
                 "WHERE client_id=? AND status NOT IN ('cancelled','expired','rejected')",
                 (f.qty, time.time(), f.qty, f.client_id),
             )

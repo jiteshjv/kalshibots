@@ -485,6 +485,7 @@ function mcDraw(){
  if(px.length){g+=`<polyline points="${px.map(r=>`${X(r[0])},${P(r[ix])}`).join(" ")}" style="fill:none;stroke:var(--fg);stroke-width:1.3"/>`;
   const l=px[px.length-1];g+=`<circle cx="${X(l[0])}" cy="${P(l[ix])}" r="3.5" style="fill:var(--fg)"/><text x="${Math.min(X(l[0])+8,W-R-80)}" y="${P(l[ix])+4}" style="fill:var(--fg);font-size:12px;font-weight:600">${sn} ${Math.round(l[ix]*100)}¢</text>`;}
  (D.lots||[]).filter(l=>l.side===side).forEach(l=>{const xe=l.out_s!=null?l.out_s:(now??900);
+  if(l.exit==="unknown"){g+=`<circle cx="${X(l.in_s)}" cy="${P(l.buy)}" r="3" style="fill:var(--muted);opacity:.6"><title>in ${l.qty} @ ${(l.buy*100).toFixed(1)}¢ — outcome unknown (bot restarted and could not match this entry)</title></circle>`;return;}
   g+=`<line x1="${X(l.in_s)}" x2="${X(xe)}" y1="${P(l.stop)}" y2="${P(l.stop)}" style="stroke:var(--loss);stroke-width:1;opacity:.55;stroke-dasharray:2 2"/>`;
   g+=`<circle cx="${X(l.in_s)}" cy="${P(l.buy)}" r="3.5" style="fill:var(--gain)"><title>in ${l.qty} @ ${(l.buy*100).toFixed(1)}¢ (stop ${(l.stop*100).toFixed(1)}¢)</title></circle>`;
   if(l.exit&&l.out_s!=null&&l.exit_px!=null)g+=`<circle cx="${X(l.out_s)}" cy="${P(l.exit_px)}" r="3.5" style="fill:var(--loss)"><title>out (${esc(l.exit)}) @ ${(l.exit_px*100).toFixed(1)}¢</title></circle>`;});

@@ -90,3 +90,16 @@ def test_recorder_failure_never_blocks_a_stop_sale(tmp_path):
     asyncio.run(app._submit_all(run, st.step(v), v))
     assert "market_sell" in sent                           # the stop reached the broker despite the recorder failing
     app.journal.close()
+
+
+def test_rec_forwards_the_timestamp():
+    got = []
+
+    class Rec:
+        def write(self, kind, payload, ts=None):
+            got.append((kind, ts))
+    app = App.__new__(App)
+    app.recorder = Rec()
+    app._rec("px", {"c": 1.0}, ts=123.4)
+    app._rec("trade", {"t": "X"})
+    assert got == [("px", 123.4), ("trade", None)]

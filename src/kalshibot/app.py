@@ -704,13 +704,13 @@ class App:
                for f in self._chart_dir().glob("*.json.gz") if f.name[:-8] not in seen]
         return sorted(live + old, key=lambda x: -x["open_ts"])[:200]
 
-    def _rec(self, kind: str, payload: dict) -> None:
+    def _rec(self, kind: str, payload: dict, ts: float | None = None) -> None:
         """Best-effort recording: a recorder failure (disk full, I/O error) is logged and never blocks trading."""
         rec = getattr(self, "recorder", None)
         if rec is None:
             return
         try:
-            rec.write(kind, payload)
+            rec.write(kind, payload, ts=ts)
         except Exception as e:                               # noqa: BLE001
             now = time.time()
             if now - getattr(self, "_rec_err_ts", 0.0) > 60:  # at most one warning a minute

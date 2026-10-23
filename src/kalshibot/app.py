@@ -65,6 +65,30 @@ def _day_clock(d) -> str:
 ENTRY_KINDS = ("limit_buy", "market_buy")
 
 
+def apply_mode_file(data, s) -> str | None:
+    """data/mode.json (written by the dashboard's Live/Paper switch) overrides config.yaml's risk.mode."""
+    import json
+    f = data / "mode.json"
+    try:
+        d = json.loads(f.read_text())
+    except (OSError, ValueError):
+        return None
+    m = d.get("mode")
+    if m in ("live", "paper") and s.risk.mode != "demo":
+        s.risk.mode = m
+        s.risk.live_confirm = d.get("live_confirm", "") if m == "live" else ""
+        return m
+    return None
+
+
+def save_mode_file(data, mode: str, confirm: str) -> None:
+    import json
+    import os
+    tmp = data / "mode.json.tmp"
+    tmp.write_text(json.dumps({"mode": mode, "live_confirm": confirm, "ts": time.time()}))
+    os.replace(tmp, data / "mode.json")
+
+
 @dataclass
 class MarketRun:
     market: MarketInfo
@@ -86,7 +110,9 @@ class App:
         from kalshibot import settings_store
         self._overrides = settings_store.load(self.data)       # dashboard Settings page (settings.json) over config.yaml
         applied = settings_store.apply(self.s, self._overrides)
-        self.journal = Journal(self.data)
+        self._mode_from_file = apply_mode_file(self.data, self.s)   # dashboard Live/Paper switch (mode.json)
+        self.journal = Journal(self.data, "journal-live.sqlite" if self.s.risk.mode == "live" else "journal.sqlite")
+        self._mode_pending: str | None = None      # "live" / "paper": switch (restart) once the bot holds nothing
         self.alerts = Alerter.from_env(settings.io.telegram_token_env, settings.io.telegram_chat_env)
         self.demo = settings.risk.mode == "demo"             # Kalshi demo exchange (fake money) with the real order code
         from kalshibot.config import DEMO_REST, DEMO_WS
@@ -124,6 +150,7 @@ class App:
         self.server.on_kill = lambda: self.alerts.kill_switch("dashboard")
         self.server.on_rearm = self.rearm
         self.server.on_get_settings = self.settings_view
+        self.server.on_mode = self.request_mode
         self.server.on_market = self.market_chart
         self.server.on_markets = self.market_chart_list
         self.server.on_set_settings = self.update_settings
@@ -191,6 +218,8 @@ class App:
         feed = {"price_feed": err} if err else {}
         if getattr(self, "shard_note", None):
             feed["account"] = self.shard_note
+        if self._mode_pending:
+            feed["mode_pending"] = self._mode_pending
         return {**feed, "mode": self.s.risk.mode, "state": self.state_name(), **self.live_line(), "schedule": self.schedule(), "series": self.s.strategy.series, "title": self.s.io.title, "entry_rule": "risk" if self.s.strategy.risk_max > 0 else "moneyness", "market": self.current.market.ticker if self.current else None,
                 "risk": self.risk.stats() if hasattr(self.risk, "stats") else {}, "updated": time.time()}
 
@@ -332,6 +361,7 @@ class App:
         log.info("resumed %s: %d open lots, %d contracts", t, len(run.strat.open_lots()), n_open)
 
     async def _second(self, now: float) -> None:
+        self._maybe_switch_mode()
         if self.switch != "kill" and self.risk.must_flatten():
             await self._begin_kill("kill file")
         elif self.switch is None and self.risk.disarm_present():
@@ -762,6 +792,45 @@ class App:
         if run is not None:
             for it in run.strat.stop_entries():
                 await self._submit(run, it, None)
+
+    # ---------------------------------------------------------------- Live / Paper switch (dashboard, token)
+    def request_mode(self, raw: dict) -> tuple[bool, str]:
+        """Dashboard Live/Paper button. Live needs the typed confirmation phrase and a Kalshi key. The switch happens
+        when the bot holds nothing (no open lots, no open orders): it writes data/mode.json and restarts (the service
+        manager starts it again in the new mode; paper and live keep separate journals)."""
+        from kalshibot.config import LIVE_CONFIRM_PHRASE
+        want = str((raw or {}).get("mode", "")).lower()
+        if self.s.risk.mode == "demo":
+            return False, "the demo bot's mode is set in its config file only"
+        if want not in ("live", "paper"):
+            return False, "mode must be live or paper"
+        if want == self.s.risk.mode:
+            self._mode_pending = None
+            return True, f"already in {want} mode"
+        if want == "live":
+            if (raw or {}).get("confirm") != LIVE_CONFIRM_PHRASE:
+                return False, f'to trade real money type exactly: {LIVE_CONFIRM_PHRASE}'
+            if not self.rest.has_key:
+                return False, "no Kalshi key on this bot"
+        self._mode_pending = want
+        self.journal.event("warn", "mode", f"dashboard: switch to {want.upper()} requested; it happens when the bot holds nothing")
+        log.warning("mode switch to %s requested from the dashboard", want)
+        return True, f"switching to {want} as soon as the bot holds nothing (no open positions or orders)"
+
+    def _flat(self) -> bool:
+        return (not any(r.strat.open_lots() for r in self.runs.values()) and self.broker.open_order_count() == 0
+                and not getattr(self.broker, "pending_cancels", None))
+
+    def _maybe_switch_mode(self) -> None:
+        if not self._mode_pending or self.stopping or not self._flat():
+            return
+        want = self._mode_pending
+        from kalshibot.config import LIVE_CONFIRM_PHRASE
+        save_mode_file(self.data, want, LIVE_CONFIRM_PHRASE if want == "live" else "")
+        self.journal.event("warn", "mode", f"switching to {want.upper()} now (bot holds nothing): restarting")
+        log.warning("switching to %s: restarting", want)
+        self.alerts.error("mode", f"switching to {want.upper()} mode")
+        self.stopping = True                     # clean shutdown; systemd / launchd start it again in the new mode
 
     def _on_signal(self, sig) -> None:
         log.warning("signal %s: cancelling entry orders and exiting (positions and 99.7c sells stay; resumed on restart)", getattr(sig, "name", sig))

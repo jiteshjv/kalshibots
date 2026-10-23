@@ -146,6 +146,7 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
       <div class="status" id="status"><span class="mut">Loading…</span></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="killbtn" id="modebtn" hidden title="Switch between paper (simulated) and live (real money); needs the bot token, and the typed phrase to go live. Happens once the bot holds nothing.">Switch</button>
       <button type="button" class="killbtn" id="rearm" style="border-color:var(--gain);color:var(--gain)" title="Trade again from the next market (only once the bot is idle)">Rearm</button>
       <button type="button" class="killbtn" id="disarm" title="No new entries; let open positions close normally, then stop">Disarm</button>
       <button type="button" class="killbtn" id="kill" title="Sell every position at market now, then stop">Kill</button>
@@ -384,7 +385,7 @@ let HEALTH=null;
 async function load(){
  let d;try{d=await (await fetch("dashboard.json",{cache:"no-store"})).json();}catch(e){$("#status").innerHTML=`<span class="badge b-bad">cannot reach the bot</span> <span class="mut">retrying in 30 s</span>`;return;}
  try{HEALTH=await (await fetch("health",{cache:"no-store"})).json();}catch(e){HEALTH=null;}
- ALL=d.m||[];retime(ALL);E=d.e||{};META=d.meta||{};EV=d.ev||[];if(META.title){document.title=META.title;$("#title").textContent=META.title;}status();sched();
+ ALL=d.m||[];retime(ALL);E=d.e||{};META=d.meta||{};EV=d.ev||[];if(META.title){document.title=META.title;$("#title").textContent=META.title;}modeBtn();status();sched();
  if(!ALL.length){["#d0","#d1"].forEach(s=>{$(s).value="";});apply();return;}
  const ds=ALL.map(r=>r.d);const lo=ds.reduce((a,b)=>a<b?a:b),hi=ds.reduce((a,b)=>a>b?a:b);
  const wasFull=$("#d0").dataset.init?($("#d1").value===$("#d1").max):null;
@@ -504,6 +505,19 @@ $("#setsave").addEventListener("click",()=>{const ch=sChanges();if(!Object.keys(
 $("#setreset").addEventListener("click",()=>{if(SET)renderSettings();$("#setmsg").textContent="";});
 $("#setform").addEventListener("click",e=>{const b=e.target.closest("[data-reset]");if(!b)return;if(confirm("Put "+b.dataset.reset+" back to the default (config file)?"))saveSettings({[b.dataset.reset]:null});});
 load();setInterval(load,30000);
+// ---------------------------------------------------------------- Live / Paper switch
+function modeBtn(){const b=$("#modebtn");const m=META.mode;if(!m||m==="demo"){b.hidden=true;return;}b.hidden=false;
+ const to=m==="live"?"paper":"live",pend=META.mode_pending;
+ b.textContent=pend?`Switching to ${pend}…`:(to==="live"?"Switch to LIVE":"Switch to paper");
+ b.style.borderColor=b.style.color=to==="live"?"var(--loss)":"var(--accent)";b.dataset.to=pend&&pend!==m?m:to;}
+$("#modebtn").addEventListener("click",async()=>{const to=$("#modebtn").dataset.to;if(!to)return;
+ const tok=prompt(`Switch the bot to ${to.toUpperCase()}${to==="live"?" (REAL MONEY)":""}.\n\nBot token (KALSHIBOT_DASH_TOKEN in the bot's .env, or dashboard_token.txt on the Mac):`);if(!tok)return;
+ const body={mode:to};
+ if(to==="live"){const c=prompt("To trade real money, type exactly:\nI UNDERSTAND THIS TRADES REAL MONEY");if(!c)return;body.confirm=c;}
+ try{const r=await fetch("mode",{method:"POST",headers:{"Authorization":"Bearer "+tok,"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));alert((r.ok?"":"Not switched: ")+(j.message||j.error||("HTTP "+r.status)));}catch(e){alert("Could not reach the bot.");}
+ load();});
+
 // ---------------------------------------------------------------- time zone (PT / ET / UTC) for every date and time
 let TZ="America/Los_Angeles";try{TZ=localStorage.getItem("kb_tz")||TZ;}catch(e){}
 const TZN={"America/Los_Angeles":"PT","America/New_York":"ET","UTC":"UTC"};

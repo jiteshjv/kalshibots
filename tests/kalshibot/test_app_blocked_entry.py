@@ -148,3 +148,33 @@ def test_slow_cancel_retries_never_hold_the_step_lock():
         task.cancel()
         return waited
     assert asyncio.run(go()) < 0.05
+
+
+def test_mode_switch_needs_phrase_and_waits_until_flat(tmp_path):
+    from kalshibot.app import apply_mode_file
+    from kalshibot.config import LIVE_CONFIRM_PHRASE, Settings
+    from test_strategy import _one_lot
+    st, _, _ = _one_lot()                                  # holding one lot
+    app = App.__new__(App)
+    app.s, app.data, app.journal = Settings(), tmp_path, Journal(tmp_path)
+    app.stopping, app._mode_pending = False, None
+    app.runs = {st.market.ticker: MarketRun(st.market, st)}
+    app.broker = PaperBroker()
+    app.rest = type("R", (), {"has_key": True})()
+    class NoAlerts:
+        def __getattr__(self, name):
+            return lambda *a, **k: None
+    app.alerts = NoAlerts()
+    ok, msg = app.request_mode({"mode": "live", "confirm": "yes"})
+    assert not ok and app._mode_pending is None            # wrong phrase: refused
+    ok, msg = app.request_mode({"mode": "live", "confirm": LIVE_CONFIRM_PHRASE})
+    assert ok and app._mode_pending == "live"
+    app._maybe_switch_mode()
+    assert not app.stopping and not (tmp_path / "mode.json").exists()   # still holding: waits
+    for L in st.lots:
+        L.exit, L.exit_px = "tp", 0.997
+    app._maybe_switch_mode()
+    assert app.stopping and (tmp_path / "mode.json").exists()          # flat: switches (restart)
+    s2 = Settings()
+    assert apply_mode_file(tmp_path, s2) == "live" and s2.risk.mode == "live" and s2.risk.live_confirm == LIVE_CONFIRM_PHRASE
+    app.journal.close()

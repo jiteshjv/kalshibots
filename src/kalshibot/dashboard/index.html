@@ -584,7 +584,7 @@ async function mcLoad(){
  if(!D||D.error||!D.ticker){$("#mc").innerHTML=`<text x="500" y="270" text-anchor="middle" style="fill:var(--muted);font-size:14px">${esc(D&&D.error||"no market yet")}</text>`;$("#mcchk").innerHTML="";return;}
  MC=D;mcDraw();mcNow();mcBook();mcChecks();
 }
-const mcAsset=D=>/^KXGOLD/.test(D.ticker||"")?["Gold","Gold"]:["Bitcoin","BTC"];
+const mcAsset=D=>/^KXGOLD/.test(D.ticker||"")?["Gold","Gold"]:/^KXETH/.test(D.ticker||"")?["Ether","ETH"]:["Bitcoin","BTC"];
 function mcDraw(){
  const [AN,AS]=mcAsset(MC);const D=MC,W=1000,L=78,R=150,X=s=>L+s/900*(W-L-R),S=D.series||[],K=D.strike,cfg=D.cfg||{};
  const now=D.settled?null:(S.length?S[S.length-1][0]:null);

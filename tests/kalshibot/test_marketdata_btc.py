@@ -187,3 +187,19 @@ def test_seed_history_paginates_300_per_request():
     ts = [b[0] for b in h.bars]
     assert ts == sorted(ts) and len(set(ts)) == len(ts)
     assert h.bars[0][1:] == pytest.approx((101.0 + W["offset"], 99.0 + W["offset"], 100.5 + W["offset"]))
+
+
+def test_eth_feed_subscribes_eth_on_every_exchange_with_no_btc_offset():
+    from kalshibot.marketdata.btc import BtcFeed, sources_for
+    src = sources_for("ETH")
+    assert src["cb"].subscribe["product_ids"] == ["ETH-USD"]
+    assert src["kr"].subscribe["params"]["symbol"] == ["ETH/USD"]
+    assert src["bs"].subscribe["data"]["channel"] == "live_trades_ethusd"
+    assert "ETHUSD" in src["gm"].url and "BTC" not in src["gm"].url
+    f = BtcFeed(asset="eth")
+    assert f.offset == 0.0 and abs(f.w["cb"] + f.w["kr"] - 1) < 1e-9
+    asked = []
+    f.seed_history(type("H", (), {"add_minute_bar": lambda *a: None})(), days=0.001,
+                   get=lambda url, params: asked.append(url) or [], now=1_800_000_000, pause=0)
+    assert asked and all("/products/ETH-USD/" in u for u in asked)
+    assert sources_for("BTC")["cb"].subscribe["product_ids"] == ["BTC-USD"]

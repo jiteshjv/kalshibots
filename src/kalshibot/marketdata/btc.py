@@ -33,7 +33,7 @@ import ssl
 import time
 import urllib.request
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol
@@ -110,6 +110,25 @@ SOURCES: dict[str, Source] = {
     "gm": Source("gm", "wss://api.gemini.com/v1/marketdata/BTCUSD?trades=true&bids=false&offers=false&heartbeat=true",
                  None, parse_gemini, 30.0),
 }
+
+
+def sources_for(asset: str = "BTC") -> dict[str, Source]:
+    """The same four exchanges for another coin (e.g. "ETH" for KXETH15M)."""
+    a = asset.upper()
+    if a == "BTC":
+        return SOURCES
+    return {
+        "cb": replace(SOURCES["cb"], subscribe={"type": "subscribe", "product_ids": [f"{a}-USD"], "channels": ["matches"]}),
+        "kr": replace(SOURCES["kr"], subscribe={"method": "subscribe", "params": {"channel": "trade", "symbol": [f"{a}/USD"]}}),
+        "bs": replace(SOURCES["bs"], subscribe={"event": "bts:subscribe", "data": {"channel": f"live_trades_{a.lower()}usd"}}),
+        "gm": replace(SOURCES["gm"], url=SOURCES["gm"].url.replace("BTCUSD", f"{a}USD")),
+    }
+
+
+# Composite weights for coins other than BTC: Coinbase/Kraken in the same proportion as BTC's research fit, no offset
+# (BTC's +$3.25 offset is a dollar basis to BRTI and means nothing for another coin).
+OTHER_WEIGHTS = {"w_cb": 0.7225, "w_kr": 0.2775, "offset": 0.0}
+
 PRIMARY = ("cb", "kr")
 FALLBACK = ("bs", "gm")
 
@@ -194,9 +213,12 @@ class BtcFeed:
     basis_alpha: float = 1 / 300                        # EMA for fallback sources' basis vs primary
     clock: Callable[[], float] = time.time
     on_raw: Callable[[str, dict], Any] | None = None    # every exchange trade message as received (recorder)
+    asset: str = "BTC"                                  # "ETH" = the same exchanges' ETH/USD trades (KXETH15M)
 
     def __post_init__(self) -> None:
-        w = self.weights or load_weights()
+        self.asset = self.asset.upper()
+        self.src = sources_for(self.asset)
+        w = self.weights or (load_weights() if self.asset == "BTC" else dict(OTHER_WEIGHTS))
         self.w = {"cb": float(w["w_cb"]), "kr": float(w["w_kr"])}
         self.offset = float(w["offset"])
         self.sources = tuple(self.sources)
@@ -384,8 +406,8 @@ class BtcFeed:
     async def run(self) -> None:
         """Start the source sockets (+ BRTI poller) and emit one tick per wall-clock second until stop()."""
         for s in self.sources:
-            if s in SOURCES:
-                self._tasks.append(asyncio.create_task(self._source_loop(SOURCES[s])))
+            if s in self.src:
+                self._tasks.append(asyncio.create_task(self._source_loop(self.src[s])))
         if self.rest is not None and getattr(self.rest, "has_key", False):
             self._tasks.append(asyncio.create_task(self._brti_loop()))
         try:
@@ -408,11 +430,12 @@ class BtcFeed:
 
     # -- history seeding ---------------------------------------------------------------------------------------
     def seed_history(self, history: HistoryLike, days: float = 3, *, get: Callable[[str, dict], list] | None = None,
-                     now: float | None = None, product: str = "BTC-USD", pause: float = 0.15) -> int:
+                     now: float | None = None, product: str | None = None, pause: float = 0.15) -> int:
         """Load `days` of Coinbase public 1-min candles (300 per request) into history.add_minute_bar(), with the
         composite offset added (Coinbase is the dominant composite weight). Blocking; wrap in asyncio.to_thread
         from async code. Returns the number of bars added."""
         get = get or _coinbase_get
+        product = product or f"{self.asset}-USD"
         now = self.clock() if now is None else now
         last = int(now // 60) * 60 - 60              # last COMPLETE minute
         first = last - int(days * 86400) + 60

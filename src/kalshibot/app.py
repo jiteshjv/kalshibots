@@ -128,10 +128,12 @@ class App:
         if settings.strategy.series.upper().startswith("KXGOLD"):
             from kalshibot.marketdata.gold import GoldFeed      # Pyth with PYTH_API_KEY, else Hyperliquid oracle; Dukascopy history seed
             self.btc = GoldFeed(self.history, rest=self.rest, data_dir=self.data)
+        elif settings.strategy.series.upper().startswith("KXETH"):   # ETH: exchange composite only (no BRTI for ETH)
+            self.btc = BtcFeed(rest=None, history=self.history, asset="ETH")
         else:
             self.btc = BtcFeed(rest=self.rest if self.rest.has_key and not self.demo else None, history=self.history)
         ws_kw = {"url": DEMO_WS} if self.demo else {}
-        if isinstance(self.btc, BtcFeed) and not self.demo:  # BRTI pushed by the Kalshi WS each second (REST poll = fallback)
+        if isinstance(self.btc, BtcFeed) and self.btc.asset == "BTC" and not self.demo:  # BRTI pushed by the Kalshi WS each second (REST poll = fallback)
             ws_kw.update(brti=True, on_brti=self._on_brti)
         self.feed = (KalshiWs(self.rest, on_book=self._rec_book, on_trade=self._rec_trade, **ws_kw) if self.rest.has_key
                      else PollingFeed(self.rest, book_interval=settings.io.book_poll_s, on_book=self._rec_book,
@@ -206,7 +208,8 @@ class App:
         lead = (p - m.strike) / m.strike
         need = run.strat.threshold(max(sec, self.s.strategy.first_check_s))
         side = "Up" if lead >= 0 else "Down"
-        name = "gold" if self.s.strategy.series.upper().startswith("KXGOLD") else "btc"
+        ser = self.s.strategy.series.upper()
+        name = "gold" if ser.startswith("KXGOLD") else "eth" if ser.startswith("KXETH") else "btc"
         late = "" if self.s.strategy.first_check_s <= sec <= self.s.strategy.last_entry_s else " (no entries now)"
         out = {name: f"{p:,.2f}", "strike": f"{m.strike:,.2f}", "minute": f"{sec // 60}:{sec % 60:02d}",
                "lead": f"{abs(lead) * 100:.3f}% {side}"}

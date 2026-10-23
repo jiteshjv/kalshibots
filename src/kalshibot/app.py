@@ -218,6 +218,7 @@ class App:
         feed = {"price_feed": err} if err else {}
         if getattr(self, "shard_note", None):
             feed["account"] = self.shard_note
+        feed["mode_switch"] = True                           # this bot has the dashboard Live/Paper switch
         if self._mode_pending:
             feed["mode_pending"] = self._mode_pending
         return {**feed, "mode": self.s.risk.mode, "state": self.state_name(), **self.live_line(), "schedule": self.schedule(), "series": self.s.strategy.series, "title": self.s.io.title, "entry_rule": "risk" if self.s.strategy.risk_max > 0 else "moneyness", "market": self.current.market.ticker if self.current else None,

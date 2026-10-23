@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>kalshibot</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2040%2040%22%20width%3D%2240%22%20height%3D%2240%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22lg%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%233d7bff%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%238b5cf6%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2240%22%20height%3D%2240%22%20rx%3D%2211%22%20fill%3D%22url%28%23lg%29%22/%3E%3Cpath%20d%3D%22M14%209.5V24.5a5.2%205.2%200%200%201-9.6%202.8%22%20fill%3D%22none%22%20stroke%3D%22%23fff%22%20stroke-width%3D%223.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Cpath%20d%3D%22M18.6%2010.5%2024%2028.5%2031.6%208.6%22%20fill%3D%22none%22%20stroke%3D%22%23fff%22%20stroke-width%3D%223.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Cpath%20d%3D%22M26.9%208.3h5v5%22%20fill%3D%22none%22%20stroke%3D%22%23fff%22%20stroke-width%3D%223.2%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2064%2064%22%20width%3D%2240%22%20height%3D%2240%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22jvc1%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23171d2c%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%230c1019%22/%3E%3C/linearGradient%3E%3ClinearGradient%20id%3D%22jvc2%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%234f8bff%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%239b6bff%22/%3E%3C/linearGradient%3E%3ClinearGradient%20id%3D%22jvc3%22%20x1%3D%220%22%20y1%3D%221%22%20x2%3D%221%22%20y2%3D%220%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%237c9cff%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%232ee59d%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20x%3D%222%22%20y%3D%222%22%20width%3D%2260%22%20height%3D%2260%22%20rx%3D%2216%22%20fill%3D%22url%28%23jvc1%29%22/%3E%3Crect%20x%3D%222.75%22%20y%3D%222.75%22%20width%3D%2258.5%22%20height%3D%2258.5%22%20rx%3D%2215.3%22%20fill%3D%22none%22%20stroke%3D%22url%28%23jvc2%29%22%20stroke-width%3D%221.5%22/%3E%3Cpath%20d%3D%22M23%2015V37a8%208%200%200%201-14.5%204.6%22%20fill%3D%22none%22%20stroke%3D%22url%28%23jvc2%29%22%20stroke-width%3D%225.5%22%20stroke-linecap%3D%22round%22/%3E%3Cpath%20d%3D%22M29%2016%2037%2045%2049%2013%22%20fill%3D%22none%22%20stroke%3D%22url%28%23jvc3%29%22%20stroke-width%3D%225.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Cpath%20d%3D%22M42%2012.5H49.5V20%22%20fill%3D%22none%22%20stroke%3D%22%232ee59d%22%20stroke-width%3D%224.4%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E">
 <style>
 :root{--warn:#9a6b00;--bg:#f4f5f7;--panel:#ffffff;--fg:#1a1f2b;--muted:#5b6475;--line:#dde1e8;--accent:#2b5fb8;--gain:#18794e;--loss:#b4332b;--chip:#e8ecf3;--sub:#f8f9fb;
 --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -33,7 +33,7 @@ p{margin:0;max-width:80ch;color:var(--muted)}
 .tabs a[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
 .tabs a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .view{display:flex;flex-direction:column;gap:20px}.view[hidden]{display:none}
-.logo{flex:none;border-radius:11px;box-shadow:0 2px 10px color-mix(in srgb,#5b6cff 35%,transparent)}
+.logo{flex:none;border-radius:12px;box-shadow:0 2px 12px color-mix(in srgb,#5b6cff 30%,transparent)}
 .setwrap{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start}
 @media (max-width:980px){.setwrap{grid-template-columns:1fr}}
 .setcol{display:flex;flex-direction:column;gap:16px;min-width:0}
@@ -142,7 +142,7 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
 <div class="wrap">
   <div class="top">
     <div style="display:flex;flex-direction:column;gap:6px">
-      <div style="display:flex;align-items:center;gap:12px"><svg class="logo" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="JV bot logo"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3d7bff"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect width="40" height="40" rx="11" fill="url(#lg)"/><path d="M14 9.5V24.5a5.2 5.2 0 0 1-9.6 2.8" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.6 10.5 24 28.5 31.6 8.6" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M26.9 8.3h5v5" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg><h1 id="title">kalshibot</h1></div>
+      <div style="display:flex;align-items:center;gap:12px"><svg class="logo" viewBox="0 0 64 64" width="40" height="40" role="img" aria-label="JV bot logo"><defs><linearGradient id="jvc1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#171d2c"/><stop offset="1" stop-color="#0c1019"/></linearGradient><linearGradient id="jvc2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f8bff"/><stop offset="1" stop-color="#9b6bff"/></linearGradient><linearGradient id="jvc3" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#7c9cff"/><stop offset="1" stop-color="#2ee59d"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="16" fill="url(#jvc1)"/><rect x="2.75" y="2.75" width="58.5" height="58.5" rx="15.3" fill="none" stroke="url(#jvc2)" stroke-width="1.5"/><path d="M23 15V37a8 8 0 0 1-14.5 4.6" fill="none" stroke="url(#jvc2)" stroke-width="5.5" stroke-linecap="round"/><path d="M29 16 37 45 49 13" fill="none" stroke="url(#jvc3)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M42 12.5H49.5V20" fill="none" stroke="#2ee59d" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/></svg><h1 id="title">kalshibot</h1></div>
       <div class="status" id="status"><span class="mut">Loading…</span></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -375,7 +375,7 @@ function status(){
  if(m.realized_today_utc!=null)parts.push(`today (UTC) ${col(m.realized_today_utc)}`);
  if(m.open_lots!=null)parts.push(`${m.open_lots} open entr${m.open_lots===1?"y":"ies"}`);
  if(m.open_orders!=null)parts.push(`${m.open_orders} open order${m.open_orders===1?"":"s"}`);
- for(const [k,v] of Object.entries(m)){if(["mode","state","kill","realized_today_utc","open_lots","open_orders","generated_ts","generated_pt","note","entry_rule","title","updated"].includes(k)||v==null||typeof v==="object")continue;parts.push(`${esc(k.replace(/_/g," "))} ${esc(v)}`);}
+ for(const [k,v] of Object.entries(m)){if(["mode","state","kill","realized_today_utc","open_lots","open_orders","generated_ts","generated_pt","note","entry_rule","title","updated","mode_switch","mode_pending"].includes(k)||v==null||typeof v==="object")continue;parts.push(`${esc(k.replace(/_/g," "))} ${esc(v)}`);}
  if(m.generated_pt)parts.push(`<span class="mut">data from ${esc(m.generated_pt)}${age!=null&&age>120?` (${Math.round(age/60)} min old)`:""}</span>`);
  if(m.note)parts.push(`<span class="mut">${esc(m.note)}</span>`);
  $("#status").innerHTML=parts.join(" · ")||'<span class="mut">no status</span>';
@@ -506,7 +506,7 @@ $("#setreset").addEventListener("click",()=>{if(SET)renderSettings();$("#setmsg"
 $("#setform").addEventListener("click",e=>{const b=e.target.closest("[data-reset]");if(!b)return;if(confirm("Put "+b.dataset.reset+" back to the default (config file)?"))saveSettings({[b.dataset.reset]:null});});
 load();setInterval(load,30000);
 // ---------------------------------------------------------------- Live / Paper switch
-function modeBtn(){const b=$("#modebtn");const m=META.mode;if(!m||m==="demo"){b.hidden=true;return;}b.hidden=false;
+function modeBtn(){const b=$("#modebtn");const m=META.mode;if(!m||m==="demo"||!META.mode_switch){b.hidden=true;return;}b.hidden=false;
  const to=m==="live"?"paper":"live",pend=META.mode_pending;
  b.textContent=pend?`Switching to ${pend}…`:(to==="live"?"Switch to LIVE":"Switch to paper");
  b.style.borderColor=b.style.color=to==="live"?"var(--loss)":"var(--accent)";b.dataset.to=pend&&pend!==m?m:to;}

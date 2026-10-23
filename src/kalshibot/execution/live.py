@@ -23,6 +23,7 @@ Client interface used (all synchronous; LiveBroker runs them in a worker thread 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime
 from typing import Any, Callable, Protocol
@@ -265,6 +266,28 @@ class LiveBroker(BrokerBase):
             self.pending_cancels[oid] = cid
             log.warning("cancel of %s (%s) not confirmed (%s): retrying, no new entries until it is", cid, oid, err[:120])
 
+    def _batch_unconfirmed(self, reply: Any, ids: list[str]) -> dict[str, str]:
+        """Kalshi's batch cancel answers per order ({"orders": [{"order_id", "order", "error"}, ...]}). Returns the
+        ids NOT confirmed cancelled (error, or missing from the reply) -> error text. "not found" counts as done."""
+        rows = (reply or {}).get("orders") if isinstance(reply, dict) else None
+        if not isinstance(rows, list):
+            return {oid: "batch reply without per-order results" for oid in ids}
+        res: dict[str, Any] = {}
+        for r in rows:
+            if isinstance(r, dict):
+                oid = str(r.get("order_id") or (r.get("order") or {}).get("order_id") or "")
+                if oid:
+                    res[oid] = r.get("error")
+        out = {}
+        for oid in ids:
+            if oid not in res:
+                out[oid] = "missing from the batch reply"
+            elif res[oid]:
+                err = json.dumps(res[oid]) if not isinstance(res[oid], str) else res[oid]
+                if not self._gone(err):
+                    out[oid] = err
+        return out
+
     async def retry_pending_cancels(self) -> int:
         """Retry cancels Kalshi has not confirmed. An order Kalshi no longer knows (404 / not found: filled or already
         gone) counts as resolved. Returns how many are still pending."""
@@ -378,9 +401,14 @@ class LiveBroker(BrokerBase):
             self.errors.append(f"cancel_all list: {e}")
         if ids:
             try:
-                await self._call(self.rest.batch_cancel, sorted(ids))
-                for oid in pend:
-                    self.pending_cancels.pop(oid, None)
+                reply = await self._call(self.rest.batch_cancel, sorted(ids))
+                bad = self._batch_unconfirmed(reply, sorted(ids))
+                cid_of = {**self.pending_cancels, **{o.exchange_id: o.client_id for o in mine if o.exchange_id}}
+                for oid in ids:
+                    if oid in bad:                        # not confirmed: keep retrying, no new entries meanwhile
+                        self._cancel_unconfirmed(oid, cid_of.get(oid, oid), bad[oid])
+                    else:
+                        self.pending_cancels.pop(oid, None)
             except Exception as e:                        # noqa: BLE001 - fall back to one by one
                 self.errors.append(f"batch_cancel: {e}")
                 cid_of = {**self.pending_cancels, **{o.exchange_id: o.client_id for o in mine if o.exchange_id}}
@@ -406,11 +434,13 @@ class LiveBroker(BrokerBase):
         batch = sorted(set(first) | set(self.pending_cancels))
         if batch:
             try:
-                await self._call(self.rest.batch_cancel, batch)
+                reply = await self._call(self.rest.batch_cancel, batch)
+                bad = self._batch_unconfirmed(reply, batch)
                 for oid in batch:
-                    self.pending_cancels.pop(oid, None)
-                for st in self.open_orders():
-                    if st.exchange_id in first:
+                    if oid not in bad:
+                        self.pending_cancels.pop(oid, None)
+                for st in self.open_orders():             # confirmed ones end here; failed ones stay open for the
+                    if st.exchange_id in first and st.exchange_id not in bad:   # one-by-one pass below
                         self._finish(st, "cancelled")
             except Exception as e:                        # noqa: BLE001 - the one-by-one pass follows
                 self.errors.append(f"shutdown batch_cancel: {e}")

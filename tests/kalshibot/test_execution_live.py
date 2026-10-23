@@ -48,6 +48,8 @@ class FakeRest:
         if self.fail_batch:
             raise RuntimeError("boom")
         self.batch.append(list(ids))
+        bad = getattr(self, "batch_errors", {})              # per-order errors inside a successful batch request
+        return {"orders": [{"order_id": i, "error": bad.get(i)} for i in ids]}
 
     def orders(self, status):
         return {"orders": list(self.resting)}
@@ -530,3 +532,27 @@ def test_shutdown_cancels_all_entry_bids_in_one_batch_first():
     run(b.cancel_entries())
     assert rest.batch and sorted(rest.batch[0]) == ["X1", "X2", "X9"]   # one request covered everything
     assert b.open_orders() == [] and b.pending_cancels == {}
+
+
+def test_batch_cancel_with_one_failed_order_keeps_that_bid_open_and_retried():
+    rest = FakeRest()
+    b, _ = mk(rest)
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.94, client_id="e2", lot_id="L2", reason="entry")
+    rest.batch_errors = {"X2": {"code": "internal_error", "message": "try again"}}
+    def single_fails(oid):
+        raise TimeoutError("read timed out")
+    rest.cancel_order = single_fails
+    run(b.cancel_entries())
+    assert b.pending_cancels == {"X2": "e2"}             # X1 confirmed; X2 not -> kept and retried, never forgotten
+    rest.cancel_order = lambda oid: rest.cancelled.append(oid)
+    assert run(b.retry_pending_cancels()) == 0 and rest.cancelled == ["X2"]
+
+
+def test_cancel_all_keeps_unconfirmed_batch_results_pending():
+    rest = FakeRest()
+    b, _ = mk(rest)
+    submit(b, kind="limit_buy", side="y", qty=10, price=0.95, client_id="e1", lot_id="L1", reason="entry")
+    rest.batch_errors = {"X1": "exchange busy"}
+    run(b.cancel_all())
+    assert b.pending_cancels == {"X1": "e1"}

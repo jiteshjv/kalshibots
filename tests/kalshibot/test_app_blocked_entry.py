@@ -60,3 +60,33 @@ def test_no_trade_triggered_stop_check_once_shutdown_starts():
     app._fast_task = None
     asyncio.run(go(True))
     assert len(calls) == 1 and app._fast_task is None      # shutting down: no new check
+
+
+def test_recorder_failure_never_blocks_a_stop_sale(tmp_path):
+    from test_strategy import _one_lot
+
+    class BrokenRecorder:
+        def write(self, kind, payload):
+            raise OSError("disk full")
+
+    st, _, _ = _one_lot()                                  # one open lot (stop 0.63)
+    app = App.__new__(App)
+    app.journal, app.risk, app.cid_ticker = Journal(tmp_path), BlockMarketBuys(), {}
+    app.recorder = BrokenRecorder()
+    from kalshibot.config import Settings
+    app.s, app.history = Settings(), st.history
+
+    class NoAlerts:
+        def __getattr__(self, name):
+            return lambda *a, **k: None
+    app.alerts = NoAlerts()
+    sent = []
+    app.broker = PaperBroker()
+    async def spy(it, m):
+        sent.append(it.kind)
+    app.broker.submit = spy
+    run = MarketRun(st.market, st)
+    v = view(125, mark_y=0.5, mny=0.0)
+    asyncio.run(app._submit_all(run, st.step(v), v))
+    assert "market_sell" in sent                           # the stop reached the broker despite the recorder failing
+    app.journal.close()

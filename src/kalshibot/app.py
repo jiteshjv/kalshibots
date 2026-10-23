@@ -135,13 +135,13 @@ class App:
             self.recorder = Recorder(self.data, settings.io.s3_bucket,
                                      s3_prefix=settings.io.s3_prefix or f"{settings.strategy.series.lower()}/")
             if isinstance(self.feed, KalshiWs):          # every book message, lossless (her data has the same)
-                self.feed.on_raw = lambda d: self.recorder.write("obraw", d)
+                self.feed.on_raw = lambda d: self._rec("obraw", d)
             if isinstance(self.btc, BtcFeed):            # every exchange trade message + the bot's prices every 100 ms
-                self.btc.on_raw = lambda s, d: self.recorder.write("ex", {"s": s, "m": d})
+                self.btc.on_raw = lambda s, d: self._rec("ex", {"s": s, "m": d})
             else:
-                self.btc.on_price = lambda p, pub, src: self.recorder.write("gold", {"p": p, "pub": pub, "src": src})
+                self.btc.on_price = lambda p, pub, src: self._rec("gold", {"p": p, "pub": pub, "src": src})
             if hasattr(self.broker, "on_event"):         # live/demo: exact send / ack / cancel / fill times of our orders
-                self.broker.on_event = lambda k, d: self.recorder.write("lv_" + k, d)
+                self.broker.on_event = lambda k, d: self._rec("lv_" + k, d)
         self.runs: dict[str, MarketRun] = {}       # ticker -> run (current + those awaiting settlement)
         self.cid_ticker: dict[str, str] = {}
         self.current: MarketRun | None = None
@@ -229,7 +229,7 @@ class App:
         run.strat.on_fill(f)
         self.journal.record_fill(f, t)
         if getattr(self, "recorder", None) is not None:
-            self.recorder.write("fill", {"t": t, "cid": f.client_id, "side": f.side, "act": f.action, "px": f.price,
+            self._rec("fill", {"t": t, "cid": f.client_id, "side": f.side, "act": f.action, "px": f.price,
                                          "qty": f.qty, "fee": f.fee, "fts": f.ts, "maker": f.maker})
         self._sync_lots(run)
 
@@ -241,7 +241,7 @@ class App:
             self._sync_lots(run)
         self.journal.update_order(client_id, status=status)
         if getattr(self, "recorder", None) is not None:
-            self.recorder.write("done", {"t": t, "cid": client_id, "status": status})
+            self._rec("done", {"t": t, "cid": client_id, "status": status})
 
     # ---------------------------------------------------------------- market lifecycle
     async def _roll_market(self, now: float) -> None:
@@ -415,7 +415,7 @@ class App:
         if it.kind != "cancel":
             self.journal.record_order(it, t)
         if getattr(self, "recorder", None) is not None:              # every order the strategy sends, next to the book it saw
-            self.recorder.write("ord", {"t": t, "cid": it.client_id, "kind": it.kind, "side": it.side, "qty": it.qty,
+            self._rec("ord", {"t": t, "cid": it.client_id, "kind": it.kind, "side": it.side, "qty": it.qty,
                                         "px": it.price, "lot": it.lot_id, "why": it.reason, "mode": self.s.risk.mode})
         await self.broker.submit(it, run.market)
         return True
@@ -600,7 +600,7 @@ class App:
         run = self.runs.get(tk)
         op = run.market.open_ts if run else self._open_of.get(tk)
         s = int(now - op) if op is not None else None
-        self.recorder.write("book", {"t": tk, "s": s, "y": b.yes_bids[:10], "n": b.no_bids[:10]})
+        self._rec("book", {"t": tk, "s": s, "y": b.yes_bids[:10], "n": b.no_bids[:10]})
 
     async def _rec_px_loop(self, every: float = 0.1) -> None:
         """Every 100 ms: the composite BTC price, BRTI and each exchange's last trade price, as the bot sees them."""
@@ -609,7 +609,7 @@ class App:
             now = time.time()
             b = self.btc
             try:
-                self.recorder.write("px", {"c": b.raw_composite(now), "b": b.brti_px, "bts": b.brti_ts,
+                self._rec("px", {"c": b.raw_composite(now), "b": b.brti_px, "bts": b.brti_ts,
                                            **{s: p.price for s, p in b.px.items() if p.price is not None}}, ts=now)
             except Exception:  # noqa: BLE001
                 log.exception("price recording failed")
@@ -617,12 +617,12 @@ class App:
     def _on_brti(self, ts: float, price: float) -> None:
         self.btc.push_brti(ts, price)
         if self.recorder is not None:
-            self.recorder.write("brti", {"ts": ts, "p": price})
+            self._rec("brti", {"ts": ts, "p": price})
 
     def _rec_trade(self, tk: str, tr) -> None:
         """Record every trade as it arrives (any subscribed market, including the next one before the bot switches)."""
         if self.recorder is not None:
-            self.recorder.write("trade", {"t": tk, "ts": tr.ts, "side": tr.taker_side, "p": tr.price, "q": tr.qty})
+            self._rec("trade", {"t": tk, "ts": tr.ts, "side": tr.taker_side, "p": tr.price, "q": tr.qty})
         run = self.current                         # fast stops: check at once on each print, not at the next 100 ms tick
         if (self.s.strategy.fast_stop_ms > 0 and run is not None and tk == run.market.ticker and not self._fast_busy
                 and not self.stopping and run.strat.open_lots()):
@@ -703,6 +703,19 @@ class App:
         old = [{"ticker": f.name[:-8], "open_ts": f.stat().st_mtime - 960, "now": False}
                for f in self._chart_dir().glob("*.json.gz") if f.name[:-8] not in seen]
         return sorted(live + old, key=lambda x: -x["open_ts"])[:200]
+
+    def _rec(self, kind: str, payload: dict) -> None:
+        """Best-effort recording: a recorder failure (disk full, I/O error) is logged and never blocks trading."""
+        rec = getattr(self, "recorder", None)
+        if rec is None:
+            return
+        try:
+            rec.write(kind, payload)
+        except Exception as e:                               # noqa: BLE001
+            now = time.time()
+            if now - getattr(self, "_rec_err_ts", 0.0) > 60:  # at most one warning a minute
+                self._rec_err_ts = now
+                log.warning("recorder write failed (%s): %s", kind, e)
 
     def _feed_down(self) -> bool:
         """The price feed reports an error (label skips with the cause, not the symptom)."""

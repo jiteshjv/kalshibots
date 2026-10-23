@@ -564,6 +564,7 @@ tzButtons();
 // ---------------------------------------------------------------- market chart (market.json / markets.json)
 let MC=null,MCSEL="",MCOPEN=new Set();
 const ptTime=ts=>new Date(ts*1000).toLocaleTimeString("en-US",{timeZone:TZ,hour:"numeric",minute:"2-digit"});
+const ptSec=ts=>new Date(ts*1000).toLocaleTimeString("en-US",{timeZone:TZ,hour:"numeric",minute:"2-digit",second:"2-digit"});
 async function mcList(){
  let L;try{L=await (await fetch("markets.json",{cache:"no-store"})).json();}catch(e){return;}
  if(!Array.isArray(L))return;
@@ -622,12 +623,27 @@ function mcDraw(){
  const bw=Math.max((W-L-R)/900,1);let vy="",vn="";
  S.forEach(r=>{if(r[6])vy+=`<rect x="${X(r[0])}" y="${vm-V(r[6])}" width="${bw}" height="${V(r[6])}"/>`;if(r[7])vn+=`<rect x="${X(r[0])}" y="${vm}" width="${bw}" height="${V(r[7])}"/>`;});
  g+=`<g style="fill:var(--gain);opacity:.8">${vy}</g><g style="fill:var(--loss);opacity:.8">${vn}</g>`;
- if(now!=null)g+=`<line x1="${X(now)}" x2="${X(now)}" y1="${t0}" y2="${v1}" style="stroke:var(--loss);opacity:.6"/><text x="${X(now)}" y="${v1+36}" text-anchor="middle" style="fill:var(--loss);font-size:11px;font-weight:600">now</text>`;
- for(let m=0;m<=15;m+=3)g+=`<text x="${X(m*60)}" y="${v1+20}" text-anchor="middle" style="fill:var(--muted);font-size:11px">${m} min</text>`;
- $("#mc").innerHTML=g;
+ if(now!=null)g+=`<line x1="${X(now)}" x2="${X(now)}" y1="${t0}" y2="${v1}" style="stroke:var(--loss);opacity:.6"/><text x="${Math.min(X(now),W-R-40)}" y="${t0-6}" text-anchor="middle" style="fill:var(--loss);font-size:11.5px;font-weight:600">now ${ptSec(D.open_ts+now)}</text>`;
+ for(let m=0;m<=15;m+=3)g+=`<text x="${X(m*60)}" y="${v1+18}" text-anchor="middle" style="fill:var(--muted);font-size:11px">${m} min</text><text x="${X(m*60)}" y="${v1+32}" text-anchor="middle" style="fill:var(--muted);font-size:10.5px">${ptTime(D.open_ts+m*60)}</text>`;
+ g+=`<g id="mchov" style="pointer-events:none"></g><rect id="mchit" x="${L}" y="${t0}" width="${W-L-R}" height="${v1-t0}" style="fill:transparent;cursor:crosshair"/>`;
+ $("#mc").innerHTML=g;MCG={L,R,W,X,Y,P,ix,sn,AS,t0,v1,S,open:D.open_ts};if(MCE)mcHover(MCE);
  const n=(D.lots||[]).length,pn=(D.lots||[]).filter(l=>l.exit).length;
  $("#mcnote").textContent=`${D.ticker} · ${n} entries${n?` (${pn} closed)`:""}${D.skipped?" · skipped: "+D.skipped:""}${D.settled?" · settled":""}`;
 }
+// hover: a line with the time, BTC and our side's price at that second
+var MCG=null,MCE=null;
+function mcHover(e){MCE=e;const G=MCG,h=$("#mchov");if(!G||!h)return;const svg=$("#mc"),pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
+ const m=svg.getScreenCTM();if(!m)return;const x=pt.matrixTransform(m.inverse()).x,sec=(x-G.L)/(G.W-G.L-G.R)*900;
+ if(!G.S.length||sec<0||sec>900){h.innerHTML="";return;}
+ let r=G.S[0];for(const q of G.S){if(Math.abs(q[0]-sec)<Math.abs(r[0]-sec))r=q;}
+ const xs=G.X(r[0]),mm=`${Math.floor(r[0]/60)}:${String(Math.floor(r[0]%60)).padStart(2,"0")}`,right=xs>G.W-G.R-170,ax=right?"end":"start",tx=right?xs-6:xs+6;
+ let o=`<line x1="${xs}" x2="${xs}" y1="${G.t0}" y2="${G.v1}" style="stroke:var(--fg);opacity:.45;stroke-dasharray:3 3"/>`;
+ o+=`<text x="${tx}" y="${G.t0+30}" text-anchor="${ax}" style="fill:var(--fg);font-size:12px;font-weight:600;paint-order:stroke;stroke:var(--panel);stroke-width:4px">${ptSec(G.open+r[0])} · min ${mm}</text>`;
+ if(r[1]!=null)o+=`<circle cx="${xs}" cy="${G.Y(r[1])}" r="3.5" style="fill:var(--accent)"/><text x="${tx}" y="${G.Y(r[1])-8}" text-anchor="${ax}" style="fill:var(--fg);font-size:11.5px;paint-order:stroke;stroke:var(--panel);stroke-width:4px">${G.AS} $${r[1].toLocaleString(undefined,{maximumFractionDigits:2})}</text>`;
+ if(r[G.ix]!=null)o+=`<circle cx="${xs}" cy="${G.P(r[G.ix])}" r="3.5" style="fill:var(--fg)"/><text x="${tx}" y="${G.P(r[G.ix])-8}" text-anchor="${ax}" style="fill:var(--fg);font-size:11.5px;paint-order:stroke;stroke:var(--panel);stroke-width:4px">${G.sn} ${(r[G.ix]*100).toFixed(1)}¢</text>`;
+ h.innerHTML=o;}
+$("#mc").addEventListener("pointermove",mcHover);
+$("#mc").addEventListener("pointerleave",()=>{MCE=null;const h=$("#mchov");if(h)h.innerHTML="";});
 function mcNow(){
  const D=MC,S=D.series||[],last=S.length?S[S.length-1]:null,lots=D.lots||[],live=!D.settled&&!MCSEL;
  const bidOf=side=>last?(side==="y"?last[4]:last[5]):null,mm=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;

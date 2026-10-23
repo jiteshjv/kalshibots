@@ -229,7 +229,7 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
   <section style="display:flex;flex-direction:column;gap:8px" id="mcsec">
     <div class="rangebar"><h2>Market chart</h2><select id="mcsel" aria-label="Market" style="font:inherit;font-size:13px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg)"></select><span id="mcnote" class="mut" style="font-size:12px"></span></div>
     <p style="font-size:12px">Top: Bitcoin (or gold) against the strike. The shaded band is "too close to buy" (the distance the entry rule needs at that moment); the bot only buys between the dashed lines. Bottom: the price of our side (the ask) with the buy ceiling, the 99.7&cent; target, and each entry with its stop (dotted red line at its stop price). Volume: contracts traded each second, buyers of YES up, buyers of NO down. Dots: <span style="color:var(--gain)">&#9679;</span> in (bought) <span style="color:var(--loss)">&#9679;</span> out (sold, stopped or settled). Updates every 3 s.</p>
-    <div class="box chart"><svg id="mc" viewBox="0 0 1000 700" style="width:100%;height:auto" role="img" aria-label="Bitcoin against the strike and our side's price for the selected market"></svg></div>
+    <div class="box chart"><svg id="mc" viewBox="0 0 1000 734" style="width:100%;height:auto" role="img" aria-label="Bitcoin against the strike and our side's price for the selected market"></svg></div>
     <div class="box"><table id="mcchk"></table></div>
   </section>
   <div style="display:flex;flex-direction:column;gap:8px">
@@ -630,7 +630,7 @@ function mcDraw(){
  const bw=Math.max((W-L-R)/900,1);let vy="",vn="";
  S.forEach(r=>{if(r[6])vy+=`<rect x="${X(r[0])}" y="${vm-V(r[6])}" width="${bw}" height="${V(r[6])}"/>`;if(r[7])vn+=`<rect x="${X(r[0])}" y="${vm}" width="${bw}" height="${V(r[7])}"/>`;});
  g+=`<g style="fill:var(--gain);opacity:.8">${vy}</g><g style="fill:var(--loss);opacity:.8">${vn}</g>`;
- if(now!=null)g+=`<line x1="${X(now)}" x2="${X(now)}" y1="${t0}" y2="${v1}" style="stroke:var(--loss);opacity:.6"/><text x="${Math.min(X(now),W-R-40)}" y="${t0-6}" text-anchor="middle" style="fill:var(--loss);font-size:11.5px;font-weight:600">now ${ptSec(D.open_ts+now)}</text>`;
+ if(now!=null){g+=`<line x1="${X(now)}" x2="${X(now)}" y1="${t0}" y2="${v1}" style="stroke:var(--loss);opacity:.6"/>`;const nx=Math.max(L+60,Math.min(X(now),W-R-60));g+=`<line x1="${X(now)}" x2="${X(now)}" y1="${v1}" y2="${v1+40}" style="stroke:var(--loss);opacity:.6"/><rect x="${nx-60}" y="${v1+40}" width="120" height="24" rx="12" style="fill:var(--loss)"/><text x="${nx}" y="${v1+56.5}" text-anchor="middle" style="fill:#fff;font-size:13px;font-weight:700">now ${ptSec(D.open_ts+now)}</text>`;}
  for(let m=0;m<=15;m+=3)g+=`<text x="${X(m*60)}" y="${v1+18}" text-anchor="middle" style="fill:var(--muted);font-size:11px">${m} min</text><text x="${X(m*60)}" y="${v1+32}" text-anchor="middle" style="fill:var(--muted);font-size:10.5px">${ptTime(D.open_ts+m*60)}</text>`;
  g+=`<g id="mchov" style="pointer-events:none"></g><rect id="mchit" x="${L}" y="${t0}" width="${W-L-R}" height="${v1-t0}" style="fill:transparent;cursor:crosshair"/>`;
  $("#mc").innerHTML=g;MCG={L,R,W,X,Y,P,ix,sn,AS,t0,v1,S,open:D.open_ts};if(MCE)mcHover(MCE);

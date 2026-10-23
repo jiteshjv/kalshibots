@@ -580,7 +580,9 @@ async function mcList(){
  if([...sel.options].some(o=>o.value===cur))sel.value=cur;
 }
 async function mcLoad(){
- let D;try{D=await (await fetch("market.json"+(MCSEL?"?t="+encodeURIComponent(MCSEL):""),{cache:"no-store"})).json();}catch(e){return;}
+ const want=MCSEL;   // a slower reply for an earlier choice (e.g. the 3 s "now" refresh) must not replace the market picked since
+ let D;try{D=await (await fetch("market.json"+(want?"?t="+encodeURIComponent(want):""),{cache:"no-store"})).json();}catch(e){return;}
+ if(want!==MCSEL)return;
  if(!D||D.error||!D.ticker){$("#mc").innerHTML=`<text x="500" y="270" text-anchor="middle" style="fill:var(--muted);font-size:14px">${esc(D&&D.error||"no market yet")}</text>`;$("#mcchk").innerHTML="";return;}
  MC=D;mcDraw();mcNow();mcBook();mcChecks();
 }

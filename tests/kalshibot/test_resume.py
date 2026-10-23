@@ -188,3 +188,11 @@ def test_shadow_bot_is_paper_only_with_filters_off_and_follows_main_settings(tmp
     (main / "settings.json").write_text(json.dumps({"strategy.size_late": 3}))
     app._shadow_settings()
     assert s.strategy.size_late == 3
+
+
+def test_market_dropdown_time_comes_from_the_ticker():
+    from kalshibot.app import next_ticker, ticker_open_ts
+    t = ticker_open_ts("KXBTC15M-26OCT231945-45")           # closes 7:45 PM New York -> opens 4:30 PM Pacific
+    assert next_ticker("KXBTC15M", t) == "KXBTC15M-26OCT231945-45"
+    assert ticker_open_ts("KXGOLD15M-26OCT231345-45") == t - 6 * 3600
+    assert ticker_open_ts("junk") is None

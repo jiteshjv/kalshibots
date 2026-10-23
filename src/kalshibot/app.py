@@ -54,6 +54,15 @@ def next_ticker(series: str, close_ts: float) -> str:
     return f"{series}-{c.strftime('%y%b%d%H%M').upper()}-{c.strftime('%M')}"
 
 
+def ticker_open_ts(ticker: str) -> float | None:
+    """Open time of a 15-min market from its ticker (the close time, New York): KXBTC15M-26OCT231945-45 -> 7:30 PM ET."""
+    try:
+        c = dt.datetime.strptime(ticker.split("-")[1], "%y%b%d%H%M").replace(tzinfo=ZoneInfo("America/New_York"))
+    except (IndexError, ValueError):
+        return None
+    return c.timestamp() - 900
+
+
 def _clock(d) -> str:
     """'9:05 PM' with no leading zero on every OS (Windows has no %-I / %-d)."""
     return d.strftime("%I:%M %p").lstrip("0")
@@ -769,7 +778,7 @@ class App:
         live = [{"ticker": r.market.ticker, "open_ts": r.market.open_ts, "now": r is self.current}
                 for r in self.runs.values()]
         seen = {x["ticker"] for x in live}
-        old = [{"ticker": f.name[:-8], "open_ts": f.stat().st_mtime - 960, "now": False}
+        old = [{"ticker": f.name[:-8], "open_ts": ticker_open_ts(f.name[:-8]) or f.stat().st_mtime - 960, "now": False}
                for f in self._chart_dir().glob("*.json.gz") if f.name[:-8] not in seen]
         return sorted(live + old, key=lambda x: -x["open_ts"])[:200]
 

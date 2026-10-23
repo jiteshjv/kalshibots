@@ -24,6 +24,21 @@ p{margin:0;max-width:80ch;color:var(--muted)}
 .b-bad{background:color-mix(in srgb,var(--loss) 18%,transparent);color:var(--loss)}
 .killbtn{font:inherit;font-size:13px;font-weight:600;padding:6px 12px;border:1px solid var(--loss);border-radius:5px;background:transparent;color:var(--loss);cursor:pointer}
 .killbtn:focus-visible{outline:2px solid var(--loss);outline-offset:2px}
+#dlg{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--fg);padding:20px 22px;width:min(460px,calc(100vw - 32px));box-sizing:border-box}
+#dlg [hidden]{display:none!important}
+#dlg::backdrop{background:rgba(0,0,0,.55)}
+#dlg h3{margin:0 0 10px;font-size:17px}#dlg h3.danger{color:var(--loss)}
+#dlgb{font-size:13.5px;color:var(--muted);white-space:pre-line;margin-bottom:14px}
+#dlg .fld{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted);margin-bottom:12px}
+#dlg .fld input{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+#dlg .ck{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;margin-bottom:10px;cursor:pointer}
+#dlg .ck input{margin-top:2px;width:16px;height:16px}#dlgck+span{font-weight:600}
+#dlgmsg{font-size:13px;min-height:1em;margin:4px 0 12px}#dlgmsg.bad{color:var(--loss)}#dlgmsg.good{color:var(--gain)}
+#dlg .act{display:flex;justify-content:flex-end;gap:10px}
+#dlg .act button{font:inherit;font-size:14px;font-weight:600;padding:8px 16px;border-radius:6px;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--fg)}
+#dlgok{background:var(--accent)!important;border-color:var(--accent)!important;color:#fff!important}
+#dlgok.danger{background:var(--loss)!important;border-color:var(--loss)!important}
+#dlgok:disabled{opacity:.4;cursor:not-allowed}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .stat{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .stat .k{font-size:12px;color:var(--muted)}.stat .v{font-family:var(--mono);font-size:20px;font-weight:500;font-variant-numeric:tabular-nums}
@@ -240,6 +255,13 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
     </aside>
   </div>
 </div>
+<dialog id="dlg"><h3 id="dlgt"></h3><div id="dlgb"></div>
+ <label class="fld">Bot token<input type="password" id="dlgtok" autocomplete="off" spellcheck="false"></label>
+ <label class="ck" id="dlgckw"><input type="checkbox" id="dlgck"><span id="dlgckt"></span></label>
+ <label class="ck"><input type="checkbox" id="dlgrem"><span style="font-weight:400">Remember the token on this browser</span></label>
+ <div id="dlgmsg"></div>
+ <div class="act"><button type="button" id="dlgno">Cancel</button><button type="button" id="dlgok">Confirm</button></div>
+</dialog>
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
@@ -425,17 +447,34 @@ $("#dall").addEventListener("click",()=>setR($("#d0").min,$("#d1").max));
 ["#dall2","#dall3"].forEach(s=>$(s).addEventListener("click",()=>setR($("#d0").min,$("#d1").max)));
 $("#dwk").addEventListener("click",()=>{const b=$("#d1").max;if(!b)return;const t=new Date(b+"T12:00:00Z");t.setUTCDate(t.getUTCDate()-6);const a=t.toISOString().slice(0,10);setR(a<$("#d0").min?$("#d0").min:a,b);});
 $("#dtoday").addEventListener("click",()=>{const b=$("#d1").max;if(b)setR(b,b);});
-async function sw(name,question,done){
- if(!confirm(question))return;
- const tok=prompt("Dashboard password: KALSHIBOT_DASH_TOKEN in the .env file (VPS), or dashboard_token.txt in the bot's data folder (this Mac):");if(!tok)return;
- try{const r=await fetch(name,{method:"POST",headers:{"X-Kill-Token":tok}});const j=await r.json().catch(()=>({}));
-  alert(r.ok?done:"Not done: "+(j.error||("HTTP "+r.status)));}
- catch(e){alert("Could not reach the bot.");}
- load();
-}
-$("#kill").addEventListener("click",()=>sw("kill","KILL: the bot cancels every order and SELLS EVERY OPEN POSITION AT MARKET now, then stays idle until you press Rearm.\n\nAfterwards, check your positions on kalshi.com.\n\nContinue?","Kill switch on. The bot is selling everything, then goes idle."));
-$("#rearm").addEventListener("click",()=>sw("rearm","REARM: the bot starts trading again from the next 15-minute market, with the settings in its config.\n\nContinue?","Re-armed. Trading resumes from the next market."));
-$("#disarm").addEventListener("click",()=>sw("disarm","DISARM: no new entries and no new markets. Open positions in the current market are still managed (stops, 99.7c sell, settlement); then the bot stays idle until you press Rearm.\n\nContinue?","Disarming. The bot finishes its open positions, then goes idle."));
+// one confirm dialog for every button that changes the bot: token (optionally remembered) + optional checkbox
+function tokGet(){try{return localStorage.getItem("kb_tok")||"";}catch(e){return "";}}
+function tokSet(t){try{t?localStorage.setItem("kb_tok",t):localStorage.removeItem("kb_tok");}catch(e){}}
+let DLG=null;
+function act(o){const d=$("#dlg"),ok=$("#dlgok"),ck=$("#dlgck"),tok=$("#dlgtok");DLG=o;
+ $("#dlgt").textContent=o.title;$("#dlgt").className=o.danger?"danger":"";$("#dlgb").textContent=o.body||"";
+ const t=tokGet();tok.value=t;$("#dlgrem").checked=!!t;
+ $("#dlgckw").hidden=!o.check;ck.checked=false;$("#dlgckt").textContent=o.check||"";
+ ok.className=o.danger?"danger":"";ok.textContent=o.ok||"Confirm";ok.hidden=false;$("#dlgno").textContent="Cancel";
+ $("#dlgmsg").textContent="";$("#dlgmsg").className="";dlgState();d.showModal();(t?(o.check?ck:ok):tok).focus();}
+function dlgState(){$("#dlgok").disabled=!$("#dlgtok").value.trim()||(!!DLG?.check&&!$("#dlgck").checked);}
+["#dlgtok","#dlgck"].forEach(s=>$(s).addEventListener("input",dlgState));
+$("#dlgno").addEventListener("click",()=>$("#dlg").close());
+$("#dlg").addEventListener("close",()=>{if(DLG?.after)DLG.after();DLG=null;});
+$("#dlgtok").addEventListener("keydown",e=>{if(e.key==="Enter"&&!$("#dlgok").disabled)$("#dlgok").click();});
+$("#dlgok").addEventListener("click",async()=>{const o=DLG;if(!o)return;const t=$("#dlgtok").value.trim(),m=$("#dlgmsg"),ok=$("#dlgok");
+ ok.disabled=true;m.className="";m.textContent="Sending…";let r,j={};
+ try{r=await fetch(o.url,{method:"POST",headers:{"X-Kill-Token":t,"Content-Type":"application/json"},body:JSON.stringify(o.data||{})});j=await r.json().catch(()=>({}));}
+ catch(e){m.className="bad";m.textContent="Could not reach the bot.";dlgState();return;}
+ if(r.status===401){tokSet("");m.className="bad";m.textContent="Wrong token.";$("#dlgtok").select();dlgState();return;}
+ if($("#dlgrem").checked)tokSet(t);else tokSet("");
+ const msg=o.msg?o.msg(r,j):(r.ok?(j.message||"Done."):(j.errors||[]).join("; ")||j.error||j.message||("HTTP "+r.status));
+ m.className=r.ok?"good":"bad";m.textContent=(r.ok?"":"Not done: ")+msg;
+ if(r.ok){ok.hidden=true;$("#dlgno").textContent="Close";}else dlgState();});
+function sw(name,title,body,done){act({title,body,danger:name==="kill",ok:title.split(":")[0],url:name,msg:(r,j)=>r.ok?done:(j.error||("HTTP "+r.status)),after:load});}
+$("#kill").addEventListener("click",()=>sw("kill","Kill: sell everything","The bot cancels every order and SELLS EVERY OPEN POSITION AT MARKET now, then stays idle until you press Rearm.\n\nAfterwards, check your positions on kalshi.com.","Kill switch on. The bot is selling everything, then goes idle."));
+$("#rearm").addEventListener("click",()=>sw("rearm","Rearm","The bot starts trading again from the next 15-minute market.","Re-armed. Trading resumes from the next market."));
+$("#disarm").addEventListener("click",()=>sw("disarm","Disarm","No new entries and no new markets. Open positions in the current market are still managed (stops, 99.7c sell, settlement); then the bot stays idle until you press Rearm.","Disarming. The bot finishes its open positions, then goes idle."));
 function sched(){
  const S=(META&&META.schedule)||{};const up=S.upcoming||[];
  let note=S.news_mode==="off"?"News windows are off in Settings.":"New entries are paused in these windows (open positions are still managed).";
@@ -492,31 +531,24 @@ $("#setform").addEventListener("change",sDraft);
 function inUse(f,vals){if(!f.show_if)return true;const [k,op,want]=f.show_if;let v=vals[k];
  if(typeof want==="number")v=Number(v);else if(typeof want==="boolean")v=(v===true||v==="true");
  return op==="=="?v===want:op==="!="?v!==want:op===">"?v>want:true;}
-async function saveSettings(body){
- const tok=prompt("Bot token: KALSHIBOT_DASH_TOKEN in the bot's .env file (server), or dashboard_token.txt in the bot's data folder (this Mac):");if(!tok)return;
- try{const r=await fetch("settings",{method:"POST",headers:{"X-Kill-Token":tok,"Content-Type":"application/json"},body:JSON.stringify(body)});
-  const j=await r.json().catch(()=>({}));$("#setmsg").textContent=r.ok?j.message:"Not saved: "+((j.errors||[]).join("; ")||j.error||("HTTP "+r.status));}
- catch(e){$("#setmsg").textContent="Could not reach the bot.";}
- loadSettings();
-}
+function saveSettings(body,title,text){
+ act({title:title||"Save settings",body:text||"",ok:"Save",url:"settings",data:body,
+  msg:(r,j)=>{const t=r.ok?j.message:((j.errors||[]).join("; ")||j.error||("HTTP "+r.status));$("#setmsg").textContent=(r.ok?"":"Not saved: ")+t;return t;},
+  after:loadSettings});}
 $("#setsave").addEventListener("click",()=>{const ch=sChanges();if(!Object.keys(ch).length){$("#setmsg").textContent="No changes.";return;}
- if(!confirm("Save these settings to the bot?\n\n"+Object.entries(ch).map(([k,v])=>k+" = "+v).join("\n")+"\n\nStrategy changes apply from the next market."))return;
- saveSettings(ch);});
+ saveSettings(ch,"Save settings",Object.entries(ch).map(([k,v])=>k+" = "+v).join("\n")+"\n\nStrategy changes apply from the next market.");});
 $("#setreset").addEventListener("click",()=>{if(SET)renderSettings();$("#setmsg").textContent="";});
-$("#setform").addEventListener("click",e=>{const b=e.target.closest("[data-reset]");if(!b)return;if(confirm("Put "+b.dataset.reset+" back to the default (config file)?"))saveSettings({[b.dataset.reset]:null});});
+$("#setform").addEventListener("click",e=>{const b=e.target.closest("[data-reset]");if(!b)return;saveSettings({[b.dataset.reset]:null},"Back to default","Put "+b.dataset.reset+" back to the default (config file).");});
 load();setInterval(load,30000);
 // ---------------------------------------------------------------- Live / Paper switch
 function modeBtn(){const b=$("#modebtn");const m=META.mode;if(!m||m==="demo"||!META.mode_switch){b.hidden=true;return;}b.hidden=false;
  const to=m==="live"?"paper":"live",pend=META.mode_pending;
  b.textContent=pend?`Switching to ${pend}…`:(to==="live"?"Switch to LIVE":"Switch to paper");
  b.style.borderColor=b.style.color=to==="live"?"var(--loss)":"var(--accent)";b.dataset.to=pend&&pend!==m?m:to;}
-$("#modebtn").addEventListener("click",async()=>{const to=$("#modebtn").dataset.to;if(!to)return;
- const tok=prompt(`Switch the bot to ${to.toUpperCase()}${to==="live"?" (REAL MONEY)":""}.\n\nBot token (KALSHIBOT_DASH_TOKEN in the bot's .env, or dashboard_token.txt on the Mac):`);if(!tok)return;
- const body={mode:to};
- if(to==="live"){const c=prompt("To trade real money, type exactly:\nI UNDERSTAND THIS TRADES REAL MONEY");if(!c)return;body.confirm=c;}
- try{const r=await fetch("mode",{method:"POST",headers:{"X-Kill-Token":tok,"Content-Type":"application/json"},body:JSON.stringify(body)});
-  const j=await r.json().catch(()=>({}));alert((r.ok?"":"Not switched: ")+(j.message||j.error||("HTTP "+r.status)));}catch(e){alert("Could not reach the bot.");}
- load();});
+$("#modebtn").addEventListener("click",()=>{const to=$("#modebtn").dataset.to;if(!to)return;const live=to==="live";
+ act({title:live?"Switch to LIVE (real money)":"Switch to paper",danger:live,ok:live?"Go live":"Switch to paper",url:"mode",
+  body:live?"The bot will place real orders with real money on Kalshi. It switches once it holds nothing (within a market or two).":"The bot stops using real money and simulates trades. It switches once it holds nothing.",
+  check:live?"I understand this trades real money":"",data:live?{mode:"live",confirm:"I UNDERSTAND THIS TRADES REAL MONEY"}:{mode:"paper"},after:load});});
 
 // ---------------------------------------------------------------- time zone (PT / ET / UTC) for every date and time
 let TZ="America/Los_Angeles";try{TZ=localStorage.getItem("kb_tz")||TZ;}catch(e){}

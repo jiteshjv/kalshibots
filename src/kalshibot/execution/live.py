@@ -79,6 +79,19 @@ def classify_yes_book(book_side: str, yes_price: float, held: Side | None) -> tu
     return "n", "buy", round(1.0 - yes_price, 4)
 
 
+def _looks_like_tp(o: dict) -> bool:
+    """A resting order that is one of our take-profit sells, judged by price alone (our TPs rest at 99.7c on the held
+    side; entry bids are never above the 98.5c ceiling): on the YES book an ask >= 99c or a bid <= 1c."""
+    yp = yes_price_of(o)
+    raw = str(o.get("side") or "").lower()
+    if yp is None:
+        return False
+    if raw in ("yes", "no"):
+        act = str(o.get("action") or "buy").lower()
+        raw = "bid" if (raw == "yes") == (act == "buy") else "ask"
+    return (raw == "ask" and yp >= 0.99) or (raw == "bid" and yp <= 0.01)
+
+
 def order_args(st: OrderState, exchange_index: int = 2) -> dict:
     """Keyword arguments for rest.create_order for this order (validated)."""
     if st.kind == "market_buy":
@@ -452,15 +465,26 @@ class LiveBroker(BrokerBase):
                 self.errors.append(f"shutdown batch_cancel: {e}")
         n = len(first) - len([o for o in self.open_orders() if o.exchange_id in first])
         n += await super().cancel_entries()
+        held: dict[str, Side] | None = None              # ticker -> side held (a resting order is read against it)
+        for k in range(3):                                # its own step: a positions failure must not skip the listing
+            try:
+                h: dict[str, Side] = {}
+                for p in _rows(await self._call(self.rest.positions), "market_positions", "positions"):
+                    pos = _num(p, "position_fp", "position")
+                    if pos:
+                        h[p.get("ticker") or p.get("market_ticker") or ""] = "y" if pos > 0 else "n"
+                held = h
+                break
+            except Exception as e:                        # noqa: BLE001
+                self.errors.append(f"cancel_entries positions: {e}")
+                if k < 2 and not self.inline:
+                    await asyncio.sleep(0.5)
         try:
-            held: dict[str, Side] = {}                    # ticker -> side held (a resting order is read against it)
-            for p in _rows(await self._call(self.rest.positions), "market_positions", "positions"):
-                pos = _num(p, "position_fp", "position")
-                if pos:
-                    held[p.get("ticker") or p.get("market_ticker") or ""] = "y" if pos > 0 else "n"
             for o in _rows(await self._call(self.rest.orders, "resting"), "orders"):
                 tk = o.get("ticker") or o.get("market_ticker") or ""
-                st = self._adopt_order(o, tk, held.get(tk))
+                if held is None and _looks_like_tp(o):   # positions unknown: a 99.7c take-profit is told apart by
+                    continue                              # price and left working; everything else is an entry bid
+                st = self._adopt_order(o, tk, None if held is None else held.get(tk))
                 if st is not None and st.action == "buy" and await self.cancel(st.client_id):
                     n += 1
         except Exception as e:                            # noqa: BLE001

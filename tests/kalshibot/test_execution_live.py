@@ -573,3 +573,19 @@ def test_order_id_containing_404_with_a_503_is_not_treated_as_gone():
         raise TimeoutError("timed out for /orders/404404")
     rest.cancel_order = timeout
     assert run(b.retry_pending_cancels()) == 1           # transport errors stay pending too
+
+
+def test_shutdown_cancels_leftover_entry_bids_even_if_positions_fail():
+    rest = FakeRest()
+    b, _ = mk(rest)
+    rest.resting = [                                     # left by an earlier run: an entry bid and a 99.7c take-profit
+        {"order_id": "OLD1", "client_order_id": "old-entry", "ticker": M.ticker, "side": "yes", "action": "buy",
+         "yes_price_dollars": "0.9100", "remaining_count_fp": "10.00"},
+        {"order_id": "OLD2", "client_order_id": "old-tp", "ticker": M.ticker, "side": "yes", "action": "sell",
+         "yes_price_dollars": "0.9970", "remaining_count_fp": "10.00"}]
+    def positions_down():
+        raise TimeoutError("positions timed out")
+    rest.positions = positions_down
+    run(b.cancel_entries())
+    sent = rest.cancelled + [i for bt in rest.batch for i in bt]
+    assert "OLD1" in sent and "OLD2" not in sent        # the entry bid is cancelled, the take-profit keeps working

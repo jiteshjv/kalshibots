@@ -90,3 +90,34 @@ def test_no_bucket_no_uploader(tmp_path):
     r.write("x", {})
     r.close()
     assert r._upthread is None
+
+
+def test_background_writes_never_wait_for_the_disk(tmp_path):
+    import time as _t
+    from kalshibot.recorder import Recorder, read_records
+    rec = Recorder(tmp_path, background=True)
+    orig = rec._write_now
+    def slow(*a):                                       # a stalled disk: 0.2 s per record
+        _t.sleep(0.2)
+        orig(*a)
+    rec._write_now = slow
+    t0 = _t.perf_counter()
+    for i in range(10):
+        rec.write("ord", {"i": i})
+    assert _t.perf_counter() - t0 < 0.05                # the caller (trading loop) is not held up
+    rec.close()                                         # shutdown writes out everything queued
+    got = [r for f in sorted((tmp_path / "rec").rglob("*.jsonl.gz")) for r in read_records(f)]
+    assert [r["d"]["i"] for r in got] == list(range(10)) and rec.dropped == 0
+
+
+def test_background_queue_full_drops_and_counts(tmp_path):
+    import threading
+    from kalshibot.recorder import Recorder
+    rec = Recorder(tmp_path, background=True, max_queue=3)
+    gate = threading.Event()
+    orig = rec._write_now
+    rec._write_now = lambda *a: (gate.wait(5), orig(*a))
+    for i in range(10):
+        rec.write("x", {"i": i})
+    assert rec.dropped >= 6                             # beyond the queue: dropped, never blocking
+    gate.set(); rec.close()

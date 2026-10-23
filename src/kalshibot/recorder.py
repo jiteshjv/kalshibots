@@ -35,7 +35,8 @@ PT = _ZI("America/Los_Angeles")                 # recordings: rec/<PT date>/<PT 
 
 class Recorder:
     def __init__(self, data_dir: str | os.PathLike, s3_bucket: str = "", *, s3_prefix: str = "",
-                 flush_every_s: float = 5.0, clock: Callable[[], float] = time.time, s3_client: Any = None):
+                 flush_every_s: float = 5.0, clock: Callable[[], float] = time.time, s3_client: Any = None,
+                 background: bool = False, max_queue: int = 200_000):
         self.root = Path(os.path.expanduser(str(data_dir))) / "rec"
         self.root.mkdir(parents=True, exist_ok=True)
         self.s3_bucket = s3_bucket or ""
@@ -55,11 +56,40 @@ class Recorder:
         self._upthread: threading.Thread | None = None
         if self.s3_bucket:
             self._start_uploader()
+        # background=True (the bot): write() only queues the record; a writer thread does JSON, gzip, disk and fsync,
+        # so slow or stalled storage never delays trading. A full queue drops records (counted in `dropped`).
+        self.dropped = 0
+        self._wq: "queue.Queue[tuple | None]" | None = None
+        self._wthread: threading.Thread | None = None
+        if background:
+            self._wq = queue.Queue(maxsize=max_queue)
+            self._wthread = threading.Thread(target=self._writer, name="recorder-writer", daemon=True)
+            self._wthread.start()
 
     # ------------------------------------------------------------------ writing
     def write(self, kind: str, payload: dict, ts: float | None = None) -> None:
         """Append one record. ts defaults to now; the hour file is chosen from the wall clock at write time."""
         now = self._clock()
+        if self._wq is not None:
+            try:
+                self._wq.put_nowait((now, kind, payload, ts))
+            except queue.Full:
+                self.dropped += 1
+            return
+        self._write_now(now, kind, payload, ts)
+
+    def _writer(self) -> None:
+        assert self._wq is not None
+        while True:
+            item = self._wq.get()
+            if item is None:
+                return
+            try:
+                self._write_now(*item)
+            except Exception:                                # noqa: BLE001 - keep writing later records
+                log.exception("recorder write")
+
+    def _write_now(self, now: float, kind: str, payload: dict, ts: float | None) -> None:
         line = json.dumps({"ts": now if ts is None else ts, "kind": kind, "d": payload},
                           separators=(",", ":"), default=_default) + "\n"
         with self._lock:
@@ -128,6 +158,9 @@ class Recorder:
         return self._path
 
     def close(self, wait_upload_s: float = 30.0) -> None:
+        if self._wq is not None and self._wthread is not None:   # write out what is queued first
+            self._wq.put(None)
+            self._wthread.join(30.0)
         with self._lock:
             self._close_current()
         if self._upq is not None and self._upthread is not None:

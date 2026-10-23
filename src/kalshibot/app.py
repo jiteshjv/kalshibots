@@ -132,7 +132,7 @@ class App:
         self.recorder = None
         if settings.io.record:
             from kalshibot.recorder import Recorder
-            self.recorder = Recorder(self.data, settings.io.s3_bucket,
+            self.recorder = Recorder(self.data, settings.io.s3_bucket, background=True,
                                      s3_prefix=settings.io.s3_prefix or f"{settings.strategy.series.lower()}/")
             if isinstance(self.feed, KalshiWs):          # every book message, lossless (her data has the same)
                 self.feed.on_raw = lambda d: self._rec("obraw", d)

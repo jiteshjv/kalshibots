@@ -428,7 +428,7 @@ $("#dtoday").addEventListener("click",()=>{const b=$("#d1").max;if(b)setR(b,b);}
 async function sw(name,question,done){
  if(!confirm(question))return;
  const tok=prompt("Dashboard password: KALSHIBOT_DASH_TOKEN in the .env file (VPS), or dashboard_token.txt in the bot's data folder (this Mac):");if(!tok)return;
- try{const r=await fetch(name,{method:"POST",headers:{"Authorization":"Bearer "+tok}});const j=await r.json().catch(()=>({}));
+ try{const r=await fetch(name,{method:"POST",headers:{"X-Kill-Token":tok}});const j=await r.json().catch(()=>({}));
   alert(r.ok?done:"Not done: "+(j.error||("HTTP "+r.status)));}
  catch(e){alert("Could not reach the bot.");}
  load();
@@ -494,7 +494,7 @@ function inUse(f,vals){if(!f.show_if)return true;const [k,op,want]=f.show_if;let
  return op==="=="?v===want:op==="!="?v!==want:op===">"?v>want:true;}
 async function saveSettings(body){
  const tok=prompt("Bot token: KALSHIBOT_DASH_TOKEN in the bot's .env file (server), or dashboard_token.txt in the bot's data folder (this Mac):");if(!tok)return;
- try{const r=await fetch("settings",{method:"POST",headers:{"Authorization":"Bearer "+tok,"Content-Type":"application/json"},body:JSON.stringify(body)});
+ try{const r=await fetch("settings",{method:"POST",headers:{"X-Kill-Token":tok,"Content-Type":"application/json"},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));$("#setmsg").textContent=r.ok?j.message:"Not saved: "+((j.errors||[]).join("; ")||j.error||("HTTP "+r.status));}
  catch(e){$("#setmsg").textContent="Could not reach the bot.";}
  loadSettings();
@@ -514,7 +514,7 @@ $("#modebtn").addEventListener("click",async()=>{const to=$("#modebtn").dataset.
  const tok=prompt(`Switch the bot to ${to.toUpperCase()}${to==="live"?" (REAL MONEY)":""}.\n\nBot token (KALSHIBOT_DASH_TOKEN in the bot's .env, or dashboard_token.txt on the Mac):`);if(!tok)return;
  const body={mode:to};
  if(to==="live"){const c=prompt("To trade real money, type exactly:\nI UNDERSTAND THIS TRADES REAL MONEY");if(!c)return;body.confirm=c;}
- try{const r=await fetch("mode",{method:"POST",headers:{"Authorization":"Bearer "+tok,"Content-Type":"application/json"},body:JSON.stringify(body)});
+ try{const r=await fetch("mode",{method:"POST",headers:{"X-Kill-Token":tok,"Content-Type":"application/json"},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));alert((r.ok?"":"Not switched: ")+(j.message||j.error||("HTTP "+r.status)));}catch(e){alert("Could not reach the bot.");}
  load();});
 

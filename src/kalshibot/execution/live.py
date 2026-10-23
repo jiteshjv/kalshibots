@@ -362,10 +362,12 @@ class LiveBroker(BrokerBase):
 
     async def cancel_all(self, ticker: str | None = None) -> int:
         """Cancel every active order we track for `ticker` (all when None) AND any other resting order the exchange
-        reports for it (left over from an earlier run). Used at market close, shutdown and on disconnect."""
-        await self.retry_pending_cancels()
+        reports for it (left over from an earlier run). Used at market close, shutdown and on disconnect.
+        Unconfirmed cancels ride along in the same batch (no separate, possibly slow, retries here)."""
         mine = self.open_orders(ticker)
         ids = {o.exchange_id for o in mine if o.exchange_id}
+        pend = set(self.pending_cancels)
+        ids |= pend
         try:
             for o in _rows(await self._call(self.rest.orders, "resting"), "orders"):
                 if ticker is None or o.get("ticker") == ticker:
@@ -377,15 +379,21 @@ class LiveBroker(BrokerBase):
         if ids:
             try:
                 await self._call(self.rest.batch_cancel, sorted(ids))
+                for oid in pend:
+                    self.pending_cancels.pop(oid, None)
             except Exception as e:                        # noqa: BLE001 - fall back to one by one
                 self.errors.append(f"batch_cancel: {e}")
-                cid_of = {o.exchange_id: o.client_id for o in mine if o.exchange_id}
+                cid_of = {**self.pending_cancels, **{o.exchange_id: o.client_id for o in mine if o.exchange_id}}
                 for oid in sorted(ids):
                     try:
                         await self._call(self.rest.cancel_order, oid)
+                        self.pending_cancels.pop(oid, None)
                     except Exception as e2:               # noqa: BLE001
                         self.errors.append(f"cancel {oid}: {e2}")
-                        self._cancel_unconfirmed(oid, cid_of.get(oid, oid), str(e2))
+                        if self._gone(str(e2)):
+                            self.pending_cancels.pop(oid, None)
+                        else:
+                            self._cancel_unconfirmed(oid, cid_of.get(oid, oid), str(e2))
         return sum(self._finish(o, "cancelled") for o in mine)
 
     async def cancel_entries(self) -> int:

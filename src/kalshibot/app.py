@@ -352,8 +352,6 @@ class App:
             self._open_of[nxt] = m.close_ts
             await self.feed.set_tickers([m.ticker, nxt])
         self.broker.on_second(view, m.ticker)
-        if getattr(self.broker, "pending_cancels", None):           # live: a cancel Kalshi has not confirmed yet
-            await self.broker.retry_pending_cancels()
         if not run.series or run.series[-1][0] != view.s:
             bp = None if view.btc is None or not math.isfinite(view.btc.price) else round(view.btc.price, 2)
             vy = round(sum(t.qty for t in view.trades if t.taker_side == "y"), 2)
@@ -546,6 +544,17 @@ class App:
             self.history.save_seconds(self.data / "history_secs.npz")     # last 30 min per second (restart warm-up)
         except Exception as e:                               # a cache: never fatal
             log.warning("history cache: %s", e)
+
+    async def _cancel_retry_loop(self) -> None:
+        """Live: retry cancels Kalshi has not confirmed, once a second, OUTSIDE the step lock (a slow exchange must
+        never hold up stop checks). New entries stay blocked while any is pending (_submit)."""
+        while not self.stopping:
+            await asyncio.sleep(1.0)
+            try:
+                if getattr(self.broker, "pending_cancels", None):
+                    await self.broker.retry_pending_cancels()
+            except Exception as e:                           # noqa: BLE001 - keep retrying
+                log.warning("pending cancel retry: %s", e)
 
     async def _housekeeping(self) -> None:
         last_save = time.time()
@@ -818,7 +827,8 @@ class App:
         except Exception as e:                               # calendar download is best effort
             log.warning("news calendar update: %s", e)
         tasks = [asyncio.create_task(self.btc.run()), asyncio.create_task(self.feed.run()),
-                 asyncio.create_task(self._settle_loop()), asyncio.create_task(self._housekeeping())]
+                 asyncio.create_task(self._settle_loop()), asyncio.create_task(self._housekeeping()),
+                 asyncio.create_task(self._cancel_retry_loop())]
         if self.recorder is not None and isinstance(self.btc, BtcFeed):
             tasks.append(asyncio.create_task(self._rec_px_loop()))
         try:

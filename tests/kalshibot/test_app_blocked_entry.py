@@ -127,3 +127,24 @@ def test_no_new_entries_while_a_cancel_is_unconfirmed(tmp_path):
     asyncio.run(app._submit_all(run, st.step(view(130)), view(130)))
     assert "limit_buy" in sent or "market_buy" in sent
     app.journal.close()
+
+
+def test_slow_cancel_retries_never_hold_the_step_lock():
+    import time as _t
+    class SlowBroker:
+        pending_cancels = {"X1": "e1"}
+        async def retry_pending_cancels(self):
+            await asyncio.sleep(2.0)                       # a degraded exchange: each retry takes seconds
+            return 1
+    app = App.__new__(App)
+    app.broker, app.stopping, app._step_lock = SlowBroker(), False, asyncio.Lock()
+    async def go():
+        task = asyncio.create_task(app._cancel_retry_loop())
+        await asyncio.sleep(1.3)                           # the retry is now in flight
+        t0 = _t.perf_counter()
+        async with app._step_lock:                         # a stop check can still run at once
+            waited = _t.perf_counter() - t0
+        app.stopping = True
+        task.cancel()
+        return waited
+    assert asyncio.run(go()) < 0.05

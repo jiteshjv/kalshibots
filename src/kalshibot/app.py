@@ -680,6 +680,17 @@ class App:
         s = int(now - op) if op is not None else None
         self._rec("book", {"t": tk, "s": s, "y": b.yes_bids[:10], "n": b.no_bids[:10]})
 
+    async def _trace_loop(self, every: float = 120.0) -> None:
+        import tracemalloc
+        tracemalloc.start(15)
+        base = tracemalloc.take_snapshot()
+        while not self.stopping:
+            await asyncio.sleep(every)
+            snap = tracemalloc.take_snapshot()
+            for st in snap.compare_to(base, "traceback")[:5]:
+                log.warning("tracemalloc +%.1f MB (%d blocks): %s", st.size_diff / 1e6, st.count_diff,
+                            " <- ".join(f"{f.filename.rsplit('/', 1)[-1]}:{f.lineno}" for f in st.traceback[-6:]))
+
     async def _rec_px_loop(self, every: float = 0.1) -> None:
         """Every 100 ms: the composite BTC price, BRTI and each exchange's last trade price, as the bot sees them."""
         while not self.stopping:
@@ -947,6 +958,8 @@ class App:
                  asyncio.create_task(self._cancel_retry_loop())]
         if self.recorder is not None and isinstance(self.btc, BtcFeed):
             tasks.append(asyncio.create_task(self._rec_px_loop()))
+        if (self.data / "TRACEMALLOC").exists():     # memory-leak hunt: log the biggest growing allocations every 2 min
+            tasks.append(asyncio.create_task(self._trace_loop()))
         try:
             nxt = int(time.time()) + 1
             while not self.stopping:

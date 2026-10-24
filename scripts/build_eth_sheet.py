@@ -9,7 +9,7 @@ def clean(o):
     if isinstance(o,list): return [clean(x) for x in o]
     if isinstance(o,dict): return {k:clean(v) for k,v in o.items()}
     return o
-RUNS=["bot","s5","s20","s100","r10","r20","vs15","sf25","sf10","s100sf25"]
+RUNS=sys.argv[2].split(",") if len(sys.argv)>2 else ["bot","s5","s20","s100","r10","r20","vs15","sf25","sf10","s100sf25","xC"]
 _C=pd.read_csv("data_news/calendar.csv"); _ET=_Z("America/New_York")
 NEWS={int(_dt.datetime.fromisoformat(f"{a}T{b}").replace(tzinfo=_ET).timestamp())+900*k for a,b,e in zip(_C.date,_C.time_et,_C.event) if e in ("jobs","cpi","fomc") for k in range(4)}
 yr=lambda day:"2025" if day.split(" ")[1]=="Dec" else "2026"          # the data runs Dec 10 2025 - Oct 21 2026

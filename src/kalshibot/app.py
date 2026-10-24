@@ -991,6 +991,8 @@ class App:
                 except Exception as e:
                     log.warning("settle_inflight: %s", e)
             self._save_history()
+            for run in list(self.runs.values()):         # keep the charts of markets still open or not yet settled
+                self._save_market_chart(run)
             for t in tasks:
                 t.cancel()
             self.btc.stop()

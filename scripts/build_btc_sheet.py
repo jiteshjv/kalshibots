@@ -21,7 +21,8 @@ MODES={"mixed":("jh_off",late("v8_mixed")),"mixed_f":("jh_now",late("v8_mixed_f"
        "equal_recfv_f":("jh_fvs2L",late("v9_fvs2L")),
        "equal_recrisk_b":("jh_rkW5c",late("v9_rkW5c")),
        "equal_recriskhb_b":("jh_rkHBl100",late("v9_rkHBl100")),
-       "equal_recriskhbc_b":("jh_ezrk_2x",late("v9_ezrk_2x"))}   # = the same + size C (200 at risk <= 5%, else 100, 50 when the ask >= 97c; ez_ research 2026-10-23, live from Oct 23 6:30 PM PT)   # = the bot now on her real order book (asks, queue, stops), stops sold 100 ms after the trigger   # = the BTC paper bot from 2026-10-21: her risk <= 15%, no moneyness line, bids 1c/0.3c, 5 s wait, stop re-check, valid prices   # *L = long price history in the Oct folders; *_b = 3- to 14-day sweeps only       # recommended: 25% + 0.03% stop, 0.5% jump pause, NFP/CPI/FOMC hour skipped
+       "equal_recriskhbc_b":("jh_ezrk_2x",late("v9_ezrk_2x")),
+       "equal_recriskhbcs_b":("jh_ezCen12b",late("v9_ezCen12b"))}   # = size C + 12% stop for markets starting 3 PM - 3 AM PT (live Oct 23 8:08 PM PT)   # = the same + size C (200 at risk <= 5%, else 100, 50 when the ask >= 97c; ez_ research 2026-10-23, live from Oct 23 6:30 PM PT)   # = the bot now on her real order book (asks, queue, stops), stops sold 100 ms after the trigger   # = the BTC paper bot from 2026-10-21: her risk <= 15%, no moneyness line, bids 1c/0.3c, 5 s wait, stop re-check, valid prices   # *L = long price history in the Oct folders; *_b = 3- to 14-day sweeps only       # recommended: 25% + 0.03% stop, 0.5% jump pause, NFP/CPI/FOMC hour skipped
 ONLY=sys.argv[2].split(",") if len(sys.argv)>2 else None
 import datetime as _dt; from zoneinfo import ZoneInfo as _Z
 _C=pd.read_csv("data_news/calendar.csv"); _ET=_Z("America/New_York")

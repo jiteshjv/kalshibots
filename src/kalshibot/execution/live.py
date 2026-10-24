@@ -23,6 +23,7 @@ Client interface used (all synchronous; LiveBroker runs them in a worker thread 
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import json
 import logging
 from datetime import datetime
@@ -187,8 +188,9 @@ class LiveBroker(BrokerBase):
         self.by_exchange_id: dict[str, str] = {}
         self._seen_fills: set[str] = set()
         self._pending_raw: dict[str, list[dict]] = {}    # fills that arrived before their order_id was known
-        self.unknown_fills: list[dict] = []
+        self.unknown_fills: deque[dict] = deque(maxlen=500)   # fills of orders this bot does not know (other bots on the account)
         self.last_fill_ts: float | None = None
+        self.started_ts = self.clock()            # before its first fill the bot asks only for fills since it started
         self.errors: list[str] = []
         self.on_event: Callable[[str, dict], Any] | None = None   # order timing log (send / ack / err / cancel / fill)
         self.pending_cancels: dict[str, str] = {}      # exchange id -> client id: cancels Kalshi has not confirmed yet
@@ -557,6 +559,7 @@ class LiveBroker(BrokerBase):
                 self._pending_raw.setdefault(oid, []).append(raw)   # reply not back yet: replay later
             else:
                 self.unknown_fills.append(raw)
+                self._seen_fills.add(key)          # not ours (e.g. the other bot on this account): do not re-add every poll
             return False
         if qty is None or qty <= 0:
             return False
@@ -582,7 +585,10 @@ class LiveBroker(BrokerBase):
         return True
 
     async def poll_fills(self, overlap_s: float = 5.0) -> int:
-        min_ts = None if self.last_fill_ts is None else self.last_fill_ts - overlap_s
+        # Oct 23: with no fill yet since a restart this asked for EVERY fill on the account (all history, both bots)
+        # every 5 s and kept them -> gold grew ~35 MB/min. Ask only from the start (orders adopted on restart are
+        # reconciled from positions, not from old fills).
+        min_ts = (self.last_fill_ts if self.last_fill_ts is not None else self.started_ts) - overlap_s
         rows = _rows(await self._call(self.rest.fills, min_ts), "fills")
         n = sum(self.ingest_fill(r) for r in sorted(rows, key=lambda r: _ts(r) or 0.0))
         for st in list(self.orders.values()):           # IOCs whose reply had no counts: settle after a poll

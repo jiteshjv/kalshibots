@@ -232,7 +232,7 @@ def test_ioc_partial_reports_cancelled_after_fills_arrive():
                        "ts": 1202}]
     assert run(b.poll_fills()) == 2
     assert rec["done"] == [("m1", "cancelled")] and b.get("m1").filled == 150
-    assert rest.fill_calls == [None]
+    assert rest.fill_calls == [b.started_ts - 5]                       # first poll: fills since the bot started, not all history
     run(b.poll_fills())
     assert rest.fill_calls[-1] == 1197 and len(rec["fills"]) == 2       # min_ts = last fill - overlap; deduped
 
@@ -617,3 +617,15 @@ def test_shutdown_finishes_quickly_when_kalshi_is_slow():
         lv.asyncio.wait_for = real_wait
     sent = [i for bt in rest.batch for i in bt]
     assert took < 2 and "X1" in sent and "OLD1" in sent  # positions timed out, leftovers still cancelled, fast
+
+
+
+def test_other_bots_fills_are_not_kept_again_every_poll():
+    """Oct 23: gold (no fill since its restart) asked for every fill on the shared account every 5 s and appended the
+    BTC bot's fills to unknown_fills each time (~35 MB/min). Unknown fills are remembered once, the list is capped."""
+    rest = FakeRest(); b, rec = mk(rest)
+    rest.fill_rows = [{"trade_id": f"o{i}", "order_id": f"OTHER{i}", "count": 30, "yes_price": 90, "is_taker": False,
+                       "ts": 1100 + i} for i in range(800)]
+    for _ in range(5):
+        run(b.poll_fills())
+    assert len(b.unknown_fills) == 500 and len(b._seen_fills) == 800 and rec["fills"] == []

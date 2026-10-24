@@ -537,3 +537,13 @@ def test_size_bands_setting_is_checked():
     assert not errs and ok["strategy.size_by_risk"] == "5:150, 10:100,15:50"
     _, errs = validate({"strategy.size_by_risk": "5-150"})
     assert errs
+
+
+def test_size_by_risk_without_the_risk_gate():
+    """Gold: entries come from the moneyness line (risk_max 0); size_by_risk still sizes by the risk number."""
+    cfg = StrategyCfg(sizing="equal", size_late=40, filters=False, size_by_risk="5:80,100:40")
+    for rk, want in ((0.03, 80), (0.30, 40), (None, 40)):
+        st, _ = make(cfg)
+        st.risk = lambda ts, p, _r=rk: _r
+        bid, = [i for i in st.step(view(120, mny=0.01)) if i.kind == "limit_buy"]
+        assert bid.qty == want, rk

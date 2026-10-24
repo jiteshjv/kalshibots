@@ -515,6 +515,8 @@ class Strategy:
                 self.risk_blocks += 1
                 self._why = "risk"
                 return []
+        elif c.size_by_risk:                     # e.g. gold: entries by the moneyness line, size by the risk number
+            rk = self.risk(v.ts, p)
         if c.filters and self.side is None:
             why = self.skip_reason(v.ts, s2, p)
             if why:

@@ -629,3 +629,19 @@ def test_other_bots_fills_are_not_kept_again_every_poll():
     for _ in range(5):
         run(b.poll_fills())
     assert len(b.unknown_fills) == 500 and len(b._seen_fills) == 800 and rec["fills"] == []
+
+
+def test_ws_fill_push_fills_a_resting_bid_at_once_and_the_poll_does_not_double_it():
+    """The WS `fill` push goes straight to ingest_fill (was: only the 5 s REST poll). A later poll returning the same
+    trade must not count it again."""
+    rest = FakeRest(); b, rec = mk(rest)
+    submit(b, kind="limit_buy", side="n", qty=30, price=0.90, client_id="e1")
+    xid = b.get("e1").exchange_id
+    push = {"trade_id": "w1", "order_id": xid, "client_order_id": "e1", "market_ticker": "T", "is_taker": False,
+            "side": "no", "yes_price_dollars": "0.1000", "count_fp": "30.00", "fee_cost": "0", "action": "buy",
+            "ts": 1201, "book_side": "ask"}
+    assert b.ingest_fill(push) is True
+    assert b.get("e1").filled == 30 and len(rec["fills"]) == 1 and abs(rec["fills"][0].price - 0.90) < 1e-9
+    rest.fill_rows = [dict(push)]
+    run(b.poll_fills())
+    assert len(rec["fills"]) == 1                      # deduped by trade id

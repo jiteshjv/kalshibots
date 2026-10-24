@@ -155,6 +155,8 @@ class App:
                 raise SystemExit("demo mode needs a Kalshi DEMO key: KALSHI_DEMO_API_KEY_ID and KALSHI_DEMO_PRIVATE_KEY_PATH")
             from kalshibot.execution.live import LiveBroker      # refuses unless the confirm phrase matches
             self.broker = LiveBroker(self.rest, settings, on_fill=self.on_fill, on_done=self.on_done)
+            if isinstance(self.feed, KalshiWs):     # Kalshi pushes our fills at once (was: only the 5 s REST poll, so a
+                self.feed.on_fill = self._ws_fill    # filled bid went unseen up to 5 s: cancelled + market-bought again)
         else:
             self.broker = PaperBroker(on_fill=self.on_fill, on_done=self.on_done)
         self.risk = RiskGuard(settings.risk, self.journal, data_dir=self.data, open_orders=self.broker.open_order_count)
@@ -268,6 +270,13 @@ class App:
             mny = None if p is None else (p - m.strike) / m.strike * (1 if lot.side == "y" else -1)
             run.entry_info[base] = (mny, run.strat.threshold(s))
         return run.entry_info[base]
+
+    def _ws_fill(self, parsed: dict, raw: dict) -> None:
+        """WS `fill` push -> the live broker (same fields as a REST fill row; deduped by trade id against the poll)."""
+        try:
+            self.broker.ingest_fill(raw)
+        except Exception as e:                               # noqa: BLE001  the 5 s poll still catches it
+            log.warning("ws fill: %s", e)
 
     def on_fill(self, f: Fill) -> None:
         t = self.cid_ticker.get(f.client_id)

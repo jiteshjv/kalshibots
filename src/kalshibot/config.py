@@ -10,6 +10,18 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 
+def parse_bands(text: str) -> list[tuple[float, int]]:
+    """'5:150,10:100,15:50' -> [(5.0, 150), (10.0, 100), (15.0, 50)], sorted by the first number. '' -> []. Raises ValueError."""
+    out = []
+    for part in str(text or "").replace(" ", "").split(","):
+        if not part:
+            continue
+        a, sep, b = part.partition(":")
+        if not sep or float(b) != int(float(b)) or int(float(b)) < 0:
+            raise ValueError(f'"{part}": write limit:contracts, e.g. 5:150')
+        out.append((float(a), int(float(b))))
+    return sorted(out)
+
 @dataclass
 class StrategyCfg:
     series: str = "KXBTC15M"
@@ -27,6 +39,9 @@ class StrategyCfg:
     early_until_s: int = 360
     sizing: str = "mixed"                # "mixed" | "equal" (equal = size_late every entry)
     max_held: int = 5000                 # max contracts held at once per market
+    size_by_risk: str = ""               # "5:150,10:100,15:50" = 150 per entry at risk <= 5%, 100 at <= 10%, 50 at <= 15% ("" = off)
+    size_ask_cap: str = ""               # "97:50" = at most 50 per entry when the ask is >= 97c ("" = off)
+    max_bought: int = 0                  # >0: at most this many contracts bought per market in all (closed entries count)
     stop_pct: float = 0.30               # each entry: stop when its side trades <= buy * (1 - 0.30) ...
     stop_lead: float = 0.0001            # ... AND BTC is within +0.01% of the strike (our side)
     take_profit: float = 0.997           # resting sell for everything open at 99.7c

@@ -51,6 +51,10 @@ strategy:
   size_late: 100              # Contracts per entry from minute 6.
   early_until_s: 360          # Where "early" ends (minute 6).
   max_held: 5000              # Most contracts held at once in one market. START SMALL in live mode: 1000-2000.
+  size_by_risk: ""            # Size by the risk number (risk_max on): "5:150,10:100,15:50" = 150 per entry at risk <= 5%,
+                              # 100 at <= 10%, 50 at <= 15% (replaces the sizes above). "" = off.
+  size_ask_cap: ""            # "97:50" = at most 50 per entry when the ask is >= 97 cents. "" = off.
+  max_bought: 0               # >0: at most this many contracts bought per market in all (closed entries count). 0 = no limit.
 
   # --- exits
   stop_pct: 0.30              # Each entry has its own stop: sell when its side trades 30% below what we paid ...

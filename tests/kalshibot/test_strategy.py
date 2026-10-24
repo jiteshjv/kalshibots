@@ -508,3 +508,32 @@ def test_fast_stop_waits_while_the_side_is_switching():
                        entry_ts=float(OP + 123)))
     v = view(123, mark_y=0.10, mny=-0.00001, bid_y=0.09, bid_n=0.89)   # YES prices low = NO doing fine
     assert st.fast_stops(v) == []                      # no sale of the NO lot judged by YES prices
+
+
+def test_size_by_risk_bands_ask_cap_and_max_bought():
+    """size_by_risk / size_ask_cap / max_bought = the backtest's SZRISK / SZASK / MKTMAX (ez_ research 2026-10-23)."""
+    cfg = StrategyCfg(risk_max=0.15, mny_start=0, mny_floor=0, sizing="equal", filters=False,
+                      size_by_risk="5:150,10:100,15:50", size_ask_cap="97:50")
+    for rk, ask, want in ((0.03, 0.90, 150), (0.05, 0.90, 150), (0.08, 0.90, 100), (0.12, 0.90, 50), (0.03, 0.975, 50)):
+        st, _ = make(cfg)
+        st.risk = lambda ts, p, _r=rk: _r
+        bid, = [i for i in st.step(view(120, mny=0.01, ask_y=ask)) if i.kind == "limit_buy"]
+        assert bid.qty == want, (rk, ask)
+    st, _ = make(replace(cfg, size_by_risk="", size_ask_cap="", size_late=100, max_bought=150))
+    st.risk = lambda ts, p: 0.03
+    bid, = [i for i in st.step(view(120, mny=0.01)) if i.kind == "limit_buy"]
+    fill(st, bid, s=120)
+    nxt = [i for i in st.step(view(130, mny=0.01)) if i.kind == "limit_buy"]
+    assert [i.qty for i in nxt] == [50]                 # 100 bought, 150 allowed in all
+    st, _ = make(replace(cfg, size_by_risk="5:150"))     # risk above every band: the normal size
+    st.risk = lambda ts, p: 0.10
+    bid, = [i for i in st.step(view(120, mny=0.01)) if i.kind == "limit_buy"]
+    assert bid.qty == 100
+
+
+def test_size_bands_setting_is_checked():
+    from kalshibot.settings_store import validate
+    ok, errs = validate({"strategy.size_by_risk": "5:150, 10:100,15:50"})
+    assert not errs and ok["strategy.size_by_risk"] == "5:150, 10:100,15:50"
+    _, errs = validate({"strategy.size_by_risk": "5-150"})
+    assert errs

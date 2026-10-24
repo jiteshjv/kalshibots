@@ -505,7 +505,7 @@ function sFmt(f,v){if(v===true)return "on";if(v===false)return "off";if(v===""||
 function sCtl(f){const v=SET.values[f.key],k=f.type.split(":")[0],id="s_"+f.key.replace(".","_"),u=sUnit(f);
  if(k==="bool")return `<label class="tgl"><input type="checkbox" id="${id}" data-k="${f.key}"${v?" checked":""} aria-label="${esc(sLabel(f))}"><span></span></label>`;
  if(k==="choice")return `<select id="${id}" data-k="${f.key}" aria-label="${esc(sLabel(f))}">${f.type.split(":")[1].split(",").map(o=>`<option${o===v?" selected":""}>${o}</option>`).join("")}</select>`;
- if(k==="str")return `<input type="text" id="${id}" data-k="${f.key}" value="${esc(v)}" aria-label="${esc(sLabel(f))}">`;
+ if(k==="str"||k==="bands")return `<input type="text" id="${id}" data-k="${f.key}" value="${esc(v)}" aria-label="${esc(sLabel(f))}">`;
  const d=Number((SET.defaults||{})[f.key]??v),lo=f.min??0;let hi=f.max??Math.max(10,(Math.abs(Number(v))||1)*4);
  const big=Math.max(Math.abs(Number(v))||0,Math.abs(d)||0,1);if(hi-lo>40*big)hi=Math.max(lo+1,Math.ceil(big*4));
  const step=k==="int"?1:(hi-lo)<=3?0.001:0.1;
@@ -522,7 +522,7 @@ function renderSettings(){
    (off.length?`<details class="unusedrows"><summary>${off.length} setting${off.length>1?"s":""} not in use with the settings above</summary>${off.map(sRow).join("")}</details>`:"")+`</section>`;}).join("");
  sDraft();
 }
-function sVal(el,f){const t=f.type.split(":")[0];if(t==="bool")return el.checked;if(t==="str"||t==="choice")return el.value;return el.value===""?null:Number(el.value);}
+function sVal(el,f){const t=f.type.split(":")[0];if(t==="bool")return el.checked;if(t==="str"||t==="bands"||t==="choice")return el.value;return el.value===""?null:Number(el.value);}
 function sChanges(){const ch={};if(!SET)return ch;
  document.querySelectorAll("#setform [data-k]").forEach(el=>{const f=SET.fields.find(x=>x.key===el.dataset.k);if(!f)return;const v=sVal(el,f);
   if(v!==null&&String(v)!==String(SET.values[f.key]))ch[f.key]=v;});return ch;}

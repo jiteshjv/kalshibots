@@ -42,11 +42,13 @@ Quirks of her_trades.py kept on purpose (parity):
 """
 from __future__ import annotations
 
+import functools
+import logging
 import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from kalshibot.config import StrategyCfg
+from kalshibot.config import StrategyCfg, parse_bands
 from kalshibot.fees import maker_fee, taker_fee
 from kalshibot.history import BtcHistory
 from kalshibot.types import Fill, Lot, MarketInfo, OrderIntent, SecondView, Side
@@ -61,6 +63,18 @@ def tick_floor(p: float) -> float:
     import math
     step = 0.01 if 0.10 < p < 0.90 else 0.001
     return round(math.floor(p / step + 1e-6) * step, 4)
+
+
+log = logging.getLogger("kalshibot.strategy")
+
+
+@functools.lru_cache(maxsize=32)
+def _bands(text: str) -> tuple[tuple[float, int], ...]:
+    try:
+        return tuple(parse_bands(text))
+    except ValueError:
+        log.warning("ignoring bad size bands %r", text)
+        return ()
 
 
 @dataclass
@@ -299,6 +313,24 @@ class Strategy:
             return c.size_early if s < c.early_until_s else c.size_late
         return c.size_late
 
+    def _size_now(self, s: int, rk: float | None, ask: float) -> int:
+        """Contracts for this entry: the normal size, or by the risk number (size_by_risk), capped near 99c (size_ask_cap).
+        Same rule as the backtest's SZRISK / SZASK (scripts/her_trades.py, ez_ research 2026-10-23)."""
+        c, sz = self.cfg, self._size(s)
+        if c.size_by_risk and rk is not None:
+            for lim, n in _bands(c.size_by_risk):
+                if rk * 100 <= lim + 1e-9:
+                    sz = n
+                    break
+        if c.size_ask_cap:
+            cap = None
+            for px, n in _bands(c.size_ask_cap):
+                if ask * 100 >= px - 1e-9:
+                    cap = n
+            if cap is not None:
+                sz = min(sz, cap)
+        return sz
+
     def threshold(self, s: int) -> float:
         c = self.cfg
         span = c.mny_end_s - c.first_check_s
@@ -476,6 +508,7 @@ class Strategy:
         if not (self.side is None or s2 == self.side or not lots):
             self._why = "holding the other side"
             return []
+        rk = None
         if c.risk_max > 0:
             rk = self.risk(v.ts, p)
             if rk is None or rk > c.risk_max:
@@ -499,7 +532,12 @@ class Strategy:
             self.price_blocks += 1
             self._why = "price at/above ceiling" if e is not None else "no ask"
             return []
-        sz = min(self._size(s), c.max_held - held)
+        sz = min(self._size_now(s, rk, e), c.max_held - held)
+        if c.max_bought > 0:
+            sz = min(sz, c.max_bought - sum(L.qty for L in self.lots))
+        if sz <= 0:
+            self._why = "max bought" if c.max_bought > 0 else "max held"
+            return []
         if c.limit_offset > 0:
             if self.pending is not None:
                 self._why = "bid still waiting"

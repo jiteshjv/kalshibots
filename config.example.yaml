@@ -65,6 +65,8 @@ strategy:
   stop_fair: false           # Also stop when BTC's fair value for our side falls below the stop price (sells before Kalshi's bid catches up).
   fast_stop_ms: 0            # >0: also check stops every this many ms between seconds and sell at once (BTC backtest on real book: 100 ms +$55K vs once a second). 0 = once a second.
                               #        stop price (skips stops whose price already bounced back).
+  stop_pct_hours: 0.0         # >0: a different stop (0.12 = 12%) for markets starting in stop_hours_pt ...
+  stop_hours_pt: ""           # ... e.g. "15-3" = 3 PM to 3 AM Pacific (end hour not included, may wrap past midnight). "" = off.
   skip_hours_pt: ""           # skip whole markets starting in these Pacific hours, e.g. "7-9" (7:00-8:59 AM). "" = none.
   jump_pause: 0.0             # >0 = no new entries while any clock minute in the last 15 moved more than this
                               #      (fraction: 0.005 = a 0.5% one-minute move). 0 = off.

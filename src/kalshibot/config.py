@@ -10,6 +10,18 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 
+def in_hours(hour: int, text: str) -> bool:
+    """Is this Pacific hour inside "15-3" / "7-9,13-14"? Start inclusive, end exclusive; a range may wrap past midnight."""
+    for part in str(text or "").replace(" ", "").split(","):
+        a, _, b = part.partition("-")
+        if not (a and b):
+            continue
+        a, b = int(a), int(b)
+        if (a <= hour < b) if a <= b else (hour >= a or hour < b):
+            return True
+    return False
+
+
 def parse_bands(text: str) -> list[tuple[float, int]]:
     """'5:150,10:100,15:50' -> [(5.0, 150), (10.0, 100), (15.0, 50)], sorted by the first number. '' -> []. Raises ValueError."""
     out = []
@@ -52,6 +64,9 @@ class StrategyCfg:
                                          #     vs waiting for the next second); 0 = once per second only
     stop_fair: bool = False              # also trigger the stop when our side's FAIR VALUE (from BTC) is <= the stop price
                                          # (sells before Kalshi's bid catches up; backtest +$7.7K, Jun 1 - Oct 19)
+    stop_hours_pt: str = ""              # markets starting in these Pacific hours use stop_pct_hours instead of stop_pct, e.g.
+                                         # "15-3" = 3 PM to 3 AM (start hour inclusive, end exclusive, may wrap past midnight)
+    stop_pct_hours: float = 0.0          # the stop in those hours (0.12 = 12%); 0 = off (late-flip research 2026-10-23)
     skip_hours_pt: str = ""              # skip whole markets whose window starts in these Pacific hours, e.g. "7-9" or
                                          # "7-9,13-14" (start hour inclusive, end hour exclusive); "" = none
     jump_pause: float = 0.0              # >0: no new entries while any clock minute in the last 15 moved more than this

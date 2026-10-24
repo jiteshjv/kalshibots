@@ -547,3 +547,22 @@ def test_size_by_risk_without_the_risk_gate():
         st.risk = lambda ts, p, _r=rk: _r
         bid, = [i for i in st.step(view(120, mny=0.01)) if i.kind == "limit_buy"]
         assert bid.qty == want, rk
+
+
+def test_stop_by_hours():
+    """stop_pct_hours / stop_hours_pt: a tighter stop for markets starting 3 PM - 3 AM PT (late-flip research 2026-10-23)."""
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    from kalshibot.config import in_hours
+    assert in_hours(15, "15-3") and in_hours(23, "15-3") and in_hours(2, "15-3") and not in_hours(3, "15-3")
+    assert not in_hours(14, "15-3") and in_hours(8, "7-9") and not in_hours(9, "7-9") and not in_hours(5, "")
+    cfg = StrategyCfg(sizing="equal", filters=False, stop_pct=0.25, stop_pct_hours=0.12, stop_hours_pt="15-3")
+    st, _ = make(cfg)
+    h = dt.datetime.fromtimestamp(OP, ZoneInfo("America/Los_Angeles")).hour
+    assert st.stop_pct == (0.12 if in_hours(h, "15-3") else 0.25)
+    st, _ = make(replace(cfg, stop_hours_pt=f"{h}-{(h + 1) % 24}"))
+    bid, = [i for i in st.step(view(120)) if i.kind == "limit_buy"]
+    fill(st, bid, s=120)
+    assert st.stop_pct == 0.12 and st.lots[0].stop == round(bid.price * 0.88, 4)
+    st, _ = make(replace(cfg, stop_hours_pt=f"{(h + 1) % 24}-{(h + 2) % 24}"))
+    assert st.stop_pct == 0.25

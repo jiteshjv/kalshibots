@@ -357,7 +357,7 @@ class App:
                 for L in lots:
                     if L.open:
                         L.exit = "unknown"
-                stop_pct = self.s.strategy.stop_pct
+                stop_pct = run.strat.stop_pct
                 for h in recon:
                     buy = h["buy"] or 0.0
                     lots.append(Lot(lot_id=f"{t}-R{h['side']}", ticker=t, side=h["side"], qty=h["qty"], buy=buy, fee_in=h["fee_in"],

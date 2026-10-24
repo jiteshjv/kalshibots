@@ -48,7 +48,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from kalshibot.config import StrategyCfg, parse_bands
+from kalshibot.config import StrategyCfg, in_hours, parse_bands
 from kalshibot.fees import maker_fee, taker_fee
 from kalshibot.history import BtcHistory
 from kalshibot.types import Fill, Lot, MarketInfo, OrderIntent, SecondView, Side
@@ -104,6 +104,7 @@ class Strategy:
         self._seq = 0
         self.market: MarketInfo | None = None
         self.lots: list[Lot] = []
+        self.stop_pct = cfg.stop_pct              # this market's stop (stop_pct_hours in stop_hours_pt), set in start_market
         self._reset()
 
     # ------------------------------------------------------------------ lifecycle
@@ -145,6 +146,12 @@ class Strategy:
             self.skipped = "no price history"
         elif r > self.cfg.max_range_2h:
             self.skipped = "2h range"
+        self.stop_pct = self.cfg.stop_pct
+        if self.cfg.stop_pct_hours > 0 and self.cfg.stop_hours_pt:
+            import datetime as _dt
+            from zoneinfo import ZoneInfo
+            if in_hours(_dt.datetime.fromtimestamp(m.open_ts, ZoneInfo("America/Los_Angeles")).hour, self.cfg.stop_hours_pt):
+                self.stop_pct = self.cfg.stop_pct_hours      # e.g. 12% from 3 PM to 3 AM PT
         if not self.skipped and self.cfg.skip_hours_pt:
             import datetime as _dt
             from zoneinfo import ZoneInfo
@@ -366,7 +373,7 @@ class Strategy:
         self.side = side
         self.n_entries += 1
         lot = Lot(lot_id=self._new_lot_id(), ticker=self.market.ticker, side=side, qty=qty, buy=ask,
-                  fee_in=taker_fee(ask, qty), stop=round(ask * (1 - self.cfg.stop_pct), 4), entry_ts=v.ts + 1,
+                  fee_in=taker_fee(ask, qty), stop=round(ask * (1 - self.stop_pct), 4), entry_ts=v.ts + 1,
                   how="market")
         self.lots.append(lot)
         it = self._intent("market_buy", side, qty, self.cfg.max_price, lot.lot_id, reason, v.s)
@@ -609,7 +616,7 @@ class Strategy:
             if L is None:
                 self.n_entries += 1
                 L = Lot(lot_id=self._new_lot_id(), ticker=self.market.ticker if self.market else "", side=o.side,
-                        qty=f.qty, buy=f.price, fee_in=f.fee, stop=round(f.price * (1 - self.cfg.stop_pct), 4),
+                        qty=f.qty, buy=f.price, fee_in=f.fee, stop=round(f.price * (1 - self.stop_pct), 4),
                         entry_ts=f.ts, how="limit")
                 o.lot_id = L.lot_id
                 self.lots.append(L)
@@ -617,7 +624,7 @@ class Strategy:
                     self._new_side = o.side
             else:                                   # partial fills of the same bid: one lot
                 L.qty, L.buy, L.fee_in = o.filled, avg, o.fee
-                L.stop = round(avg * (1 - self.cfg.stop_pct), 4)
+                L.stop = round(avg * (1 - self.stop_pct), 4)
                 if L.lot_id in self.tp_of:          # TP size no longer matches: replace it next step
                     self._queued.append(self._cancel(self.tp_of[L.lot_id], "resize"))
             if o.filled >= o.qty - _QTY_EPS:
@@ -628,7 +635,7 @@ class Strategy:
             L = self._lot(o.lot_id)
             if L is not None:
                 L.buy, L.fee_in, L.entry_ts = avg, o.fee, o.first_ts
-                L.stop = round(avg * (1 - self.cfg.stop_pct), 4)
+                L.stop = round(avg * (1 - self.stop_pct), 4)
             if o.filled >= o.qty - _QTY_EPS:
                 o.active = False
         elif o.kind == "limit_sell":

@@ -128,7 +128,7 @@ class Recorder:
             n += 1
             p = d / f"{hh}.{n}.jsonl.gz"
         self._raw = open(p, "xb")
-        self._gz = gzip.GzipFile(fileobj=self._raw, mode="wb", mtime=0)
+        self._gz = gzip.GzipFile(fileobj=self._raw, mode="wb", mtime=0, compresslevel=3)   # level 9 cost ~4x the CPU (GIL time taken from trading in bursts) for ~10% smaller files
         self._hour_key, self._path = key, p
         self._last_flush = self._clock()
 

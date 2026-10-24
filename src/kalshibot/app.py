@@ -680,6 +680,21 @@ class App:
         s = int(now - op) if op is not None else None
         self._rec("book", {"t": tk, "s": s, "y": b.yes_bids[:10], "n": b.no_bids[:10]})
 
+    async def _lag_watch(self, every: float = 0.1, warn_s: float = 0.5) -> None:
+        """Event-loop watchdog: warn when the loop runs late (a stall delays stops and entries). Oct 23 8:58 PM PT the
+        bot froze ~50 s in a burst of Kalshi book messages; this makes any such stall visible in the log."""
+        worst, since = 0.0, time.monotonic()
+        while not self.stopping:
+            t = time.monotonic()
+            await asyncio.sleep(every)
+            lag = time.monotonic() - t - every
+            worst = max(worst, lag)
+            if lag > warn_s:
+                log.warning("event loop ran %.1f s late (stops and entries were delayed)", lag)
+            if time.monotonic() - since > 3600:
+                log.info("event loop: worst delay in the last hour %.2f s", worst)
+                worst, since = 0.0, time.monotonic()
+
     async def _trace_loop(self, every: float = 120.0) -> None:
         import tracemalloc
         tracemalloc.start(15)
@@ -958,6 +973,7 @@ class App:
                  asyncio.create_task(self._cancel_retry_loop())]
         if self.recorder is not None and isinstance(self.btc, BtcFeed):
             tasks.append(asyncio.create_task(self._rec_px_loop()))
+        tasks.append(asyncio.create_task(self._lag_watch()))
         if (self.data / "TRACEMALLOC").exists():     # memory-leak hunt: log the biggest growing allocations every 2 min
             tasks.append(asyncio.create_task(self._trace_loop()))
         try:

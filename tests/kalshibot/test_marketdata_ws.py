@@ -291,3 +291,38 @@ def test_set_tickers_on_a_dead_socket_does_not_raise_and_keeps_the_new_ticker():
     new = "KXBTC15M-26OCT191400-00"
     run(w.set_tickers([TK, new]))
     assert w.tickers == [TK, new]
+
+
+def test_a_burst_of_buffered_messages_does_not_freeze_the_event_loop(monkeypatch):
+    """Oct 23 8:58 PM: Kalshi sent 129K book messages in a minute; `async for` over buffered messages never suspends,
+    so the stops / fast stops / price ticks did not run for ~50 s. The reader must give the loop a turn."""
+    class BurstWs(FakeWs):
+        async def __anext__(self):                 # like websockets with a full buffer: returns without suspending
+            if not self.incoming:
+                raise StopAsyncIteration
+            return json.dumps(self.incoming.pop(0))
+
+    w = KalshiWs(FakeRest(), [TK], clock=lambda: 1000.0)
+    burst = BurstWs([{"type": "ok", "id": i} for i in range(2000)])
+    ticks = []
+
+    async def other():
+        while True:
+            ticks.append(len(burst.incoming))
+            await asyncio.sleep(0)
+
+    class Conn:
+        async def __aenter__(self): return burst
+        async def __aexit__(self, *a): return False
+
+    w._connect = lambda url, **kw: Conn()
+    import kalshibot.marketdata.kalshi_ws as kw_mod
+    monkeypatch.setattr(kw_mod, "auth_headers", lambda *a, **k: {})
+
+    async def go():
+        t = asyncio.create_task(other())
+        await asyncio.sleep(0)
+        await w._session()
+        t.cancel()
+    run(go())
+    assert len([x for x in ticks if 0 < x < 2000]) >= 50     # the other task ran many times DURING the burst

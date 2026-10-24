@@ -346,7 +346,11 @@ class BtcFeed:
                     self.px[src.name].connected = True
                     log.info("%s connected", src.name)
                     back = 1.0
+                    n = 0
                     async for m in ws:
+                        n += 1
+                        if n % 20 == 0:                    # a buffered burst never suspends `async for`: give the loop a turn
+                            await asyncio.sleep(0)
                         try:
                             d = json.loads(m)
                         except ValueError:

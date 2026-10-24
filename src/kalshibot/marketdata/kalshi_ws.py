@@ -39,6 +39,7 @@ from .kalshi_rest import CA_FILE, KalshiError, KalshiRest, auth_headers, parse_l
 log = logging.getLogger("kalshibot.marketdata.ws")
 
 WS_URL = "wss://api.elections.kalshi.com/trade-api/ws/v2"
+YIELD_EVERY = 20                       # messages handled before giving the event loop a turn (see KalshiWs._session)
 WS_SIGN_PATH = "/trade-api/ws/v2"
 
 
@@ -300,10 +301,14 @@ class KalshiWs:
             await self._set_connected(True)
             for ch in self.channels:
                 await self._subscribe(ch)
+            n = 0
             async for raw in ws:
                 await self.handle(json.loads(raw))
                 if self._stop:
                     break
+                n += 1
+                if n % YIELD_EVERY == 0:      # a burst of buffered messages never suspends `async for`: let the stops,
+                    await asyncio.sleep(0)    # fast stops and price ticks run (Oct 23 8:58 PM: 129K messages/min froze them)
         self.ws = None
 
     async def _set_connected(self, v: bool) -> None:
